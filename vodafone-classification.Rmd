@@ -1,0 +1,244 @@
+---
+title: "vodafone-classification"
+author: "ahmed-akram"
+date: "May 23, 2016"
+output: html_document
+---
+
+```{r, message=FALSE, comment=NA}
+
+library(plyr)
+library(e1071)
+library(rpart)
+library(randomForest)
+library(neuralnet)
+library(dplyr)
+library(ipred)
+
+set.seed(415)
+
+
+model_train <- read.csv("~/Downloads/train.csv")
+model_test <- read.csv("~/Downloads/test.csv")
+```
+
+
+```{r}
+nr <- NROW(model_train)
+ind <- sample(nr, 0.7 * nr, replace = FALSE)
+train <- model_train[ind,]
+test <- model_train[-ind,]
+```
+
+
+```{r}
+fit <- lm(TARGET ~ ., data = train)
+ind <- which(test %>% names == 'TARGET')
+pred <- predict(fit, test[, -ind])
+confusion_matrix <- table(pred, test$TARGET)
+```
+
+```{r}
+yes <- train %>% subset(TARGET == 1)
+no <- train %>% subset(TARGET == 0)
+
+yes %>% dplyr::select(X206_USAGE, X207_USAGE, X208_USAGE, X209_USAGE, X210_USAGE) %>% head
+
+no %>% dplyr::select(X206_USAGE, X207_USAGE, X208_USAGE, X209_USAGE, X210_USAGE) %>% head
+```
+
+
+```{r}
+cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE, type=NULL, frm=NULL) {
+    # folds
+    k = folds
+    
+    # give each row an id from 1:k representing which fold it's in
+    data$id <- sample(1:k, nrow(data), replace = TRUE)
+    list <- 1:k
+    
+    data[[class]] <- factor(data[[class]])
+    
+    progress.bar <- create_progress_bar("text")
+    progress.bar$init(k)
+    
+    accuracies = c()
+    precisions = c()
+    recalls = c()
+    f_scores = c()
+    
+    for (i in 1:k){
+        # get all rows with id != i to be in training set and those with id == i will be testing set
+        trainingset <- data %>% subset(id %in% list[-i])
+        testset <- data %>% subset(id %in% c(i))
+        # building the formula
+        if(is.null(frm)) {
+        	frm <- paste(class, ".", sep=" ~ ")
+        }
+        print(frm)
+        # building the fitting model
+        if(is.null(ntree)) {
+            fit <- frm %>% formula %>% model(data=data)
+        }else if(!is.null(type)) {
+            fit <- frm %>% formula %>% model(data=data, type=type)
+        }else{
+            fit <- frm %>% formula %>% model(data=data, ntree = ntree)
+        }
+        
+        # get the index of the class in the list of feature names
+        index <- which(data %>% names == class)
+        
+        # predict on the test set without the desired class column
+        pred <- predict(fit, testset[,-index])
+        
+        confusion_matrix <- table(pred, testset[[class]])
+        #rownames(confusion_matrix) <- c("Predicted No", "Predicted Yes")
+        #colnames(confusion_matrix) <- c("Actual No", "Actual Yes")
+        
+        if(print) {
+            print(confusion_matrix)
+        }
+        
+        TN <- confusion_matrix[1,1]
+        TP <- confusion_matrix[2,2]
+        FP <- confusion_matrix[2,1]
+        FN <- confusion_matrix[1,2]
+        
+        accuracy <- (TP + TN) / (testset %>% nrow)
+        precision <- (TP) / (FP + TP)
+        recall <- (TP) / (TP + FN)
+        f_score <- 2 * (recall * precision) / (recall + precision)
+        
+        accuracies <- accuracies %>% append(accuracy)
+        precisions <- precisions %>% append(precision)
+        recalls <- recalls %>% append(recall)
+        f_scores <- f_scores %>% append(f_score)
+        
+        progress.bar$step()
+    }
+    
+    return (as.data.frame(list("Accuracy" = accuracies, 
+                               "Precision" = precisions,
+                               "Recall" = recalls,
+                               "F_Score" = f_scores)))
+}
+```
+
+
+```{r}
+#fit <- naiveBayes(as.factor(TARGET) ~ ., data = train)
+nr <- NROW(subtrain)
+ind <- sample(nr, 0.7 * nr, replace = FALSE)
+train <- subtrain[ind,]
+test <- subtrain[-ind,]
+
+fit <- randomForest(as.factor(TARGET) ~ ., data = subtrain, ntree=15)
+predIndex <- which(test %>% names == 'TARGET')
+pred <- predict(fit, test[, -predIndex])
+confusion_matrix <- table(pred, test$TARGET)
+```
+
+
+```{r}
+TN <- confusion_matrix[1,1]
+TP <- confusion_matrix[2,2]
+FP <- confusion_matrix[2,1]
+FN <- confusion_matrix[1,2]
+        
+accuracy <- (TP + TN) / (test %>% nrow)
+accuracy
+
+#res <- cross_validate(model_train, naiveBayes, "TARGET", 10)
+#res
+```
+
+
+```{r}
+add_differences <- function(data) {
+	subtrain <- data
+	subtrain$diff_one2 <- subtrain %>% apply(1, function(x) {
+		(x[['X208_USAGE']] / mean(c(x[['X206_USAGE']], x[['X207_USAGE']]))) * 100
+	})
+	
+	subtrain$diff_two2 <- subtrain %>% apply(1, function(x) {
+		(x[['X209_USAGE']] / mean(c(x[['X207_USAGE']], x[['X208_USAGE']]))) * 100
+	})
+	
+	subtrain$diff_three2 <- subtrain %>% apply(1, function(x) {
+		(x[['X210_USAGE']] / mean(c(x[['X208_USAGE']], x[['X209_USAGE']]))) * 100
+	})
+
+	subtrain
+}
+
+add_differences2 <- function(data) {
+	subtrain <- data
+	subtrain$diff_one <- subtrain %>% apply(1, function(x) {
+		if(x[['X208_USAGE']] > mean(c(x[['X206_USAGE']], x[['X207_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	
+	subtrain$diff_two <- subtrain %>% apply(1, function(x) {
+		if(x[['X209_USAGE']] > mean(c(x[['X207_USAGE']], x[['X208_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	
+	subtrain$diff_three <- subtrain %>% apply(1, function(x) {
+		if(x[['X210_USAGE']] > mean(c(x[['X208_USAGE']], x[['X209_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	subtrain
+}
+```
+
+
+
+
+```{r Best score with naive bayes}
+model_train <- read.csv("~/Downloads/train.csv")
+model_test <- read.csv("~/Downloads/test.csv")
+
+nr <- NROW(model_train)
+ind <- sample(nr, 0.7 * nr, replace = FALSE)
+train <- model_train[ind,]
+test <- model_train[-ind,]
+
+train <- add_differences2(train)
+test <- add_differences2(test)
+
+fit <- naiveBayes(as.factor(TARGET) ~ diff_one + diff_two + diff_three, data = train)
+pred <- predict(fit, newdata = test[, -12])
+confusion_matrix <- table(pred, test$TARGET)
+confusion_matrix
+
+TN <- confusion_matrix[1,1]
+TP <- confusion_matrix[2,2]
+FP <- confusion_matrix[2,1]
+FN <- confusion_matrix[1,2]
+accuracy <- (TP + TN) / (test %>% nrow)
+accuracy
+```
+
+
+
+```{r submit}
+submit <- function(number, fit, data) {
+	
+	ind <- which(data %>% names == "TARGET")
+	pred <- predict(fit, newdata = data[, -ind])
+
+	data <- data %>% dplyr::select(CONTRACT_KEY)
+	data$PREDICTED_TARGET = pred
+	
+	file <- paste("~/Desktop/submission-", number, ".csv")
+	write.csv(data, file, row.names = FALSE)
+}
+```
+
+
