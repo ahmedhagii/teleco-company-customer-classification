@@ -195,8 +195,8 @@ accuracy
 submit <- function(number, fit, data) {
 	
 	ind <- which(data %>% names == "TARGET")
-	pred <- predict(fit, newdata = data[, -ind])
-
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
 	data <- data %>% dplyr::select(CONTRACT_KEY)
 	data$PREDICTED_TARGET = pred
 	
