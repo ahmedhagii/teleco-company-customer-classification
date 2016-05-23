@@ -84,6 +84,14 @@ scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5
 ```
 
 
+Average per session vs. Total sessions
+```{r}
+model_train %>% subset(TOTAL_SESSIONS < 10000) %>% subset(AVG_PER_SESSION < 500) %>% ggplot(aes(x=TOTAL_SESSIONS, y=AVG_PER_SESSION)) + geom_point(aes(color=factor(TARGET))) +
+scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40))
+```
+
+
 Total usage density:
 ```{r}
 model_train %>% subset(TOTAL_USAGE < 50000) %>% 
@@ -105,5 +113,16 @@ model_train %>% subset(AVG_PER_SESSION < 25) %>%
 	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + 
 	labs(x="Average Usage Per Session", y="density")
 	
+```
+
+
+Weighted average vs. Average usage:
+```{r}
+model_train %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
+
+model_train %>% subset(MEAN_USAGE < 15000) %>% ggplot(aes(x=MEAN_USAGE, y=WEIGHTED_AVG)) + geom_point(aes(color=factor(TARGET))) +
+scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + scale_x_continuous(breaks = round(seq(min(model_train$MEAN_USAGE), max(model_train$MEAN_USAGE), by = 1000),1)) +
+  scale_y_continuous(breaks = round(seq(min(model_train$WEIGHTED_AVG), max(model_train$WEIGHTED_AVG), by = 1000),1))
 ```
 

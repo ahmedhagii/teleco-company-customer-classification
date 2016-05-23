@@ -20,7 +20,7 @@ set.seed(10)
 
 
 # model_train <- read.csv("data/train.csv")
-# model_test <- read.csv("data/test.csv")
+model_test <- read.csv("data/test.csv")
 ```
 
 ```{r adding the roaming counter to datasets}
@@ -171,11 +171,34 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 }
 ```
 
+```{r}
+model_train <- model_train %>% mutate(SUM_EXCEEDING = diff_one + diff_two + diff_three)
+model_train <- model_train %>% mutate(MEAN_USAGE = TOTAL_USAGE / 5)
+
+model_test <- model_test %>% mutate(SUM_EXCEEDING = diff_one + diff_two + diff_three) %>% mutate(MEAN_USAGE = TOTAL_USAGE / 5)
+```
+
+```{r}
+model_train <- model_train %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
+
+model_test <- model_test %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
+
+model_test <- model_test %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
+
+model_train <- model_train %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
+```
+
+
 ```{r divide into train and test for local validation}
 nr <- NROW(model_train)
 ind <- sample(nr, 0.7 * nr, replace = FALSE)
 train <- model_train[ind,]
 test <- model_train[-ind,]
+
+# nr <- NROW(model2)
+# ind <- sample(nr, 0.7 * nr, replace = FALSE)
+# train <- model2[ind,]
+# test <- model2[-ind,]
 ```
 
 ```{r calculate function}
@@ -188,30 +211,91 @@ calculate <- function(fit) {
 	TP <- confusion_matrix[2,2]
 	FP <- confusion_matrix[2,1]
 	FN <- confusion_matrix[1,2]
-	accuracy <- (TP + TN) / (test %>% nrow)
+	# accuracy <- (TP + TN) / (test %>% nrow)
+	accuracy <- (TP + TN) / (TN + TP + FP + FN)
 	print(accuracy)
+	return(TP)
 }
 ```
 
 ```{r Best score with naive bayes}
-fit <- naiveBayes(as.factor(TARGET) ~ diff_one + diff_two + diff_three + diff_one2 + diff_two2 + diff_three2 + TOTAL_USAGE, data = train)
+fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + sum + MEAN_USAGE, data = train)
 calculate(fit)
 ```
 
 ```{r bagging}
-fit <- bagging(as.factor(TARGET) ~ diff_one + diff_two + diff_three + AVG_PER_SESSION + TOTAL_SESSIONS, data = train)
+fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + sum + MEAN_USAGE, data = train)
 calculate(fit)
 ```
 
 ```{r decision tree}
-fit <- J48(as.factor(TARGET) ~ diff_one + diff_two + diff_three + AVG_PER_SESSION + diff_one2 + diff_two2 + TOTAL_USAGE, data = train)
+fit <- J48(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE, data = train)
 calculate(fit)
 ```
 
 ```{r random forest}
-fit <- randomForest(as.factor(TARGET) ~ diff_one + diff_two + diff_three + AVG_PER_SESSION + diff_one2 + diff_two2 + TOTAL_USAGE, data = train, ntree=50)
+fit <- randomForest(as.factor(TARGET) ~ ., data = train, ntree=50)
 calculate(fit)
 ```
+
+
+```{r}
+try_all <- function() {
+	features <- c("TOTAL_USAGE", "AVG_PER_SESSION", "SUM_EXCEEDING", "MEAN_USAGE", "WEIGHTED_AVG")
+	# features <- c("TOTAL_USAGE", "WEIGHTED_AVG")
+	
+	substrRight <- function(x, n){
+		substr(x, nchar(x)-n+1, nchar(x))
+	}
+	
+	max_score = 0
+	best_form = ""
+	total_yes = 0
+	
+	train[["TARGET"]] <- factor(train[["TARGET"]])
+	rec <- function(index, frm, max_score, best_form) {
+		if(index > length(features)) {
+			# print(frm)
+			# print(paste("Max was ", max_score, "with formula: ", best_form))
+			if(frm == "") {
+				return(" .")
+			}
+			return(frm)
+		}
+		
+		used_formula <- rec(index + 1, frm, max_score, best_form)
+		frm2 <- paste("TARGET", used_formula, sep=" ~")
+		# fom2 <- paste(as.factor(TARGET), used_formula, sepd=" ~")
+		print(frm2)
+		# fit <-  randomForest(as.formula(frm2), data = train, ntree=40, na.action = na.omit)
+		fit <-  naiveBayes(as.formula(frm2), data = train)
+		res <- calculate(fit)
+		# print(res)
+		# print(max_score)
+		vector <<- vector %>% cbind(c(res, frm2))
+		# if(substrRight(frm, 1) == "~") {
+		if(frm == "") {
+			formula = paste(frm, features[index], sep=" ")
+		}else {
+			formula = paste(frm, features[index], sep=" + ")
+		}
+		if(as.numeric(res) > max_score) {
+			best_form <<- frm2
+			max_score <<- res
+			rec(index + 1, formula, as.numeric(res), frm2)
+		}else {
+			rec(index + 1, formula, max_score, best_form)
+		}
+	}
+
+	
+	rec(1, "", 0, "")
+	print(paste("Best score achieved ", max_score, "with formula: ", best_form))
+}
+
+
+```
+
 
 ```{r submit}
 submit <- function(number, fit, data) {
@@ -219,10 +303,31 @@ submit <- function(number, fit, data) {
 	ind <- which(data %>% names == "TARGET")
 	pred <- predict(fit, newdata = data)
 	print(pred %>% unique)
-	data <- data %>% dplyr::select(CONTRACT_KEY)
+	
+	# data <- data %>% dplyr::select(CONTRACT_KEY)
 	data$PREDICTED_TARGET = pred
+	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
+		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 200) {
+			return(1)
+		}else {
+			return(row[['PREDICTED_TARGET']])
+		}
+	})
+	
+	data <- data %>% select(CONTRACT_KEY, PREDICTED_TARGET)
 	
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
 ```
+
+
+```{r}
+# J48
+# pred     0     1
+#    0 16923  3283
+#    1  1141  1280
+# [1] 0.8044814
+# [1] "TARGET ~ MEAN_USAGE"
+```
+
