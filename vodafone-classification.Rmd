@@ -15,40 +15,86 @@ library(neuralnet)
 library(dplyr)
 library(ipred)
 
-set.seed(415)
+set.seed(10)
 
 
-model_train <- read.csv("~/Downloads/train.csv")
-model_test <- read.csv("~/Downloads/test.csv")
+# model_train <- read.csv("data/train.csv")
+# model_test <- read.csv("data/test.csv")
 ```
 
+```{r adding the roaming counter to datasets}
+daily_roaming_counter <- daily %>% group_by(CONTRACT_KEY) %>% summarise(roaming_counter = sum(as.numeric(ROAMING_FLAG)))
 
-```{r}
-nr <- NROW(model_train)
-ind <- sample(nr, 0.7 * nr, replace = FALSE)
-train <- model_train[ind,]
-test <- model_train[-ind,]
+hash<-new.env()
+for(i in 1:(daily_roaming_counter %>% nrow)) {
+	hash[[as.character(daily_roaming_counter[i,]$CONTRACT_KEY)]] <- daily_roaming_counter[i,]$roaming_counter
+}
+
+add_roaming_counter <- function(data) {
+	data$ROAMING_COUNTER <- data %>% apply(1, function(row) {
+		if(is.null(hash[[as.character(row[['CONTRACT_KEY']])]])) {
+			return(NA)
+		}
+		return(hash[[as.character(row[['CONTRACT_KEY']])]])
+	})
+	data
+}
+
+model_train <- add_roaming_counter(model_train)
+model_test <- add_roaming_counter(model_test)
 ```
 
+```{r adding the diff features}
+add_differences <- function(data) {
+	subtrain <- data
+	subtrain$diff_one2 <- subtrain %>% apply(1, function(x) {
+		(x[['MONTH3_USAGE']] / mean(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']]))) * 100
+	})
+	
+	subtrain$diff_two2 <- subtrain %>% apply(1, function(x) {
+		(x[['MONTH4_USAGE']] / mean(c(x[['MONTH2_USAGE']], x[['MONTH3_USAGE']]))) * 100
+	})
+	
+	subtrain$diff_three2 <- subtrain %>% apply(1, function(x) {
+		(x[['MONTH5_USAGE']] / mean(c(x[['MONTH3_USAGE']], x[['MONTH4_USAGE']]))) * 100
+	})
 
-```{r}
-fit <- lm(TARGET ~ ., data = train)
-ind <- which(test %>% names == 'TARGET')
-pred <- predict(fit, test[, -ind])
-confusion_matrix <- table(pred, test$TARGET)
+	subtrain
+}
+
+add_differences2 <- function(data) {
+	subtrain <- data
+	subtrain$diff_one <- subtrain %>% apply(1, function(x) {
+		if(x[['MONTH3_USAGE']] > mean(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	
+	subtrain$diff_two <- subtrain %>% apply(1, function(x) {
+		if(x[['MONTH4_USAGE']] > mean(c(x[['MONTH2_USAGE']], x[['MONTH3_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	
+	subtrain$diff_three <- subtrain %>% apply(1, function(x) {
+		if(x[['MONTH5_USAGE']] > mean(c(x[['MONTH3_USAGE']], x[['MONTH4_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	subtrain
+}
+
+model_train <- add_differences(model_train)
+model_train <- add_differences2(model_train)
+
+model_test <- add_differences(model_test)
+model_test <- add_differences2(model_test)
 ```
 
-```{r}
-yes <- train %>% subset(TARGET == 1)
-no <- train %>% subset(TARGET == 0)
-
-yes %>% dplyr::select(X206_USAGE, X207_USAGE, X208_USAGE, X209_USAGE, X210_USAGE) %>% head
-
-no %>% dplyr::select(X206_USAGE, X207_USAGE, X208_USAGE, X209_USAGE, X210_USAGE) %>% head
-```
-
-
-```{r}
+```{r cross validation function}
 cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE, type=NULL, frm=NULL) {
     # folds
     k = folds
@@ -124,95 +170,15 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 }
 ```
 
-
-```{r}
-#fit <- naiveBayes(as.factor(TARGET) ~ ., data = train)
-nr <- NROW(subtrain)
-ind <- sample(nr, 0.7 * nr, replace = FALSE)
-train <- subtrain[ind,]
-test <- subtrain[-ind,]
-
-fit <- randomForest(as.factor(TARGET) ~ ., data = subtrain, ntree=15)
-predIndex <- which(test %>% names == 'TARGET')
-pred <- predict(fit, test[, -predIndex])
-confusion_matrix <- table(pred, test$TARGET)
-```
-
-
-```{r}
-TN <- confusion_matrix[1,1]
-TP <- confusion_matrix[2,2]
-FP <- confusion_matrix[2,1]
-FN <- confusion_matrix[1,2]
-        
-accuracy <- (TP + TN) / (test %>% nrow)
-accuracy
-
-#res <- cross_validate(model_train, naiveBayes, "TARGET", 10)
-#res
-```
-
-
-```{r}
-add_differences <- function(data) {
-	subtrain <- data
-	subtrain$diff_one2 <- subtrain %>% apply(1, function(x) {
-		(x[['X208_USAGE']] / mean(c(x[['X206_USAGE']], x[['X207_USAGE']]))) * 100
-	})
-	
-	subtrain$diff_two2 <- subtrain %>% apply(1, function(x) {
-		(x[['X209_USAGE']] / mean(c(x[['X207_USAGE']], x[['X208_USAGE']]))) * 100
-	})
-	
-	subtrain$diff_three2 <- subtrain %>% apply(1, function(x) {
-		(x[['X210_USAGE']] / mean(c(x[['X208_USAGE']], x[['X209_USAGE']]))) * 100
-	})
-
-	subtrain
-}
-
-add_differences2 <- function(data) {
-	subtrain <- data
-	subtrain$diff_one <- subtrain %>% apply(1, function(x) {
-		if(x[['X208_USAGE']] > mean(c(x[['X206_USAGE']], x[['X207_USAGE']])) + 500) {
-			return(1)
-		}
-		return(0)
-	})
-	
-	subtrain$diff_two <- subtrain %>% apply(1, function(x) {
-		if(x[['X209_USAGE']] > mean(c(x[['X207_USAGE']], x[['X208_USAGE']])) + 500) {
-			return(1)
-		}
-		return(0)
-	})
-	
-	subtrain$diff_three <- subtrain %>% apply(1, function(x) {
-		if(x[['X210_USAGE']] > mean(c(x[['X208_USAGE']], x[['X209_USAGE']])) + 500) {
-			return(1)
-		}
-		return(0)
-	})
-	subtrain
-}
-```
-
-
-
-
-```{r Best score with naive bayes}
-model_train <- read.csv("~/Downloads/train.csv")
-model_test <- read.csv("~/Downloads/test.csv")
-
+```{r divide into train and test for local validation}
 nr <- NROW(model_train)
-ind <- sample(nr, 0.7 * nr, replace = FALSE)
+ind <- sample(nr, 0.8 * nr, replace = FALSE)
 train <- model_train[ind,]
 test <- model_train[-ind,]
+```
 
-train <- add_differences2(train)
-test <- add_differences2(test)
-
-fit <- naiveBayes(as.factor(TARGET) ~ diff_one + diff_two + diff_three, data = train)
+```{r Best score with naive bayes}
+fit <- naiveBayes(as.factor(TARGET) ~ diff_one + diff_two + diff_three + diff_one2 + diff_two2 + diff_three2 + TOTAL_USAGE, data = train)
 pred <- predict(fit, newdata = test[, -12])
 confusion_matrix <- table(pred, test$TARGET)
 confusion_matrix
@@ -225,8 +191,6 @@ accuracy <- (TP + TN) / (test %>% nrow)
 accuracy
 ```
 
-
-
 ```{r submit}
 submit <- function(number, fit, data) {
 	
@@ -236,9 +200,7 @@ submit <- function(number, fit, data) {
 	data <- data %>% dplyr::select(CONTRACT_KEY)
 	data$PREDICTED_TARGET = pred
 	
-	file <- paste("~/Desktop/submission-", number, ".csv")
+	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
 ```
-
-

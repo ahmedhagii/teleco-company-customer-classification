@@ -71,6 +71,8 @@ add_totals <- function(data) {
 	data
 }
 
+model_train <- add_totals(model_train)
+model_test <- add_totals(model_test)
 ```
 
 
@@ -92,6 +94,7 @@ model_train %>% subset(TOTAL_USAGE < 50000) %>%
 	labs(x="Total usage for 5 months", y="density")
 	
 ```
+
 
 Average per session density:
 ```{r}
