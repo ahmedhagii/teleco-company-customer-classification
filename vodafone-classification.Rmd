@@ -14,6 +14,7 @@ library(randomForest)
 library(neuralnet)
 library(dplyr)
 library(ipred)
+library(RWeka)
 
 set.seed(10)
 
@@ -172,23 +173,44 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 
 ```{r divide into train and test for local validation}
 nr <- NROW(model_train)
-ind <- sample(nr, 0.8 * nr, replace = FALSE)
+ind <- sample(nr, 0.7 * nr, replace = FALSE)
 train <- model_train[ind,]
 test <- model_train[-ind,]
 ```
 
+```{r calculate function}
+calculate <- function(fit) {
+	pred <- predict(fit, newdata = test[, -12])
+	confusion_matrix <- table(pred, test$TARGET)
+	print(confusion_matrix)
+	
+	TN <- confusion_matrix[1,1]
+	TP <- confusion_matrix[2,2]
+	FP <- confusion_matrix[2,1]
+	FN <- confusion_matrix[1,2]
+	accuracy <- (TP + TN) / (test %>% nrow)
+	print(accuracy)
+}
+```
+
 ```{r Best score with naive bayes}
 fit <- naiveBayes(as.factor(TARGET) ~ diff_one + diff_two + diff_three + diff_one2 + diff_two2 + diff_three2 + TOTAL_USAGE, data = train)
-pred <- predict(fit, newdata = test[, -12])
-confusion_matrix <- table(pred, test$TARGET)
-confusion_matrix
+calculate(fit)
+```
 
-TN <- confusion_matrix[1,1]
-TP <- confusion_matrix[2,2]
-FP <- confusion_matrix[2,1]
-FN <- confusion_matrix[1,2]
-accuracy <- (TP + TN) / (test %>% nrow)
-accuracy
+```{r bagging}
+fit <- bagging(as.factor(TARGET) ~ diff_one + diff_two + diff_three + AVG_PER_SESSION + TOTAL_SESSIONS, data = train)
+calculate(fit)
+```
+
+```{r decision tree}
+fit <- J48(as.factor(TARGET) ~ diff_one + diff_two + diff_three + AVG_PER_SESSION + diff_one2 + diff_two2 + TOTAL_USAGE, data = train)
+calculate(fit)
+```
+
+```{r random forest}
+fit <- randomForest(as.factor(TARGET) ~ diff_one + diff_two + diff_three + AVG_PER_SESSION + diff_one2 + diff_two2 + TOTAL_USAGE, data = train, ntree=50)
+calculate(fit)
 ```
 
 ```{r submit}
