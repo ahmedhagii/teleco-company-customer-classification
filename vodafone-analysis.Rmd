@@ -15,12 +15,14 @@ library(neuralnet)
 library(dplyr)
 library(ipred)
 library(ggplot2)
+library(RWeka)
 
 set.seed(10)
 
 
 model_train <- read.csv("data/train.csv")
 model_test <- read.csv("data/test.csv")
+daily <- read.csv("data/daily_aggregate.csv")
 ```
 
 renaming columns

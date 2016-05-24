@@ -20,7 +20,7 @@ set.seed(10)
 
 
 # model_train <- read.csv("data/train.csv")
-model_test <- read.csv("data/test.csv")
+# model_test <- read.csv("data/test.csv")
 ```
 
 ```{r adding the roaming counter to datasets}
@@ -186,6 +186,13 @@ model_test <- model_test %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_US
 model_test <- model_test %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
 
 model_train <- model_train %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
+
+model_train <- model_train %>% mutate(BIGGER_THAN = as.numeric(DIFF_BETWEEN_6th_AND_MEAN) > 105)
+
+model_test <- model_test %>% mutate(BIGGER_THAN = as.numeric(DIFF_BETWEEN_6th_AND_MEAN) > 105)
+
+model_train$BIGGER_THAN <- as.numeric(model_train$BIGGER_THAN)
+model_test$BIGGER_THAN <- as.numeric(model_test$BIGGER_THAN)
 ```
 
 
@@ -240,59 +247,91 @@ calculate(fit)
 
 
 ```{r}
-try_all <- function() {
-	features <- c("TOTAL_USAGE", "AVG_PER_SESSION", "SUM_EXCEEDING", "MEAN_USAGE", "WEIGHTED_AVG")
-	# features <- c("TOTAL_USAGE", "WEIGHTED_AVG")
-	
+try_all <- function(model) {
+# 	features <- c("TOTAL_USAGE", "BIGGER_THAN")
+	features <- c("TOTAL_USAGE", "AVG_PER_SESSION", "SUM_EXCEEDING", "MEAN_USAGE", "WEIGHTED_AVG", "DIFF_BETWEEN_6th_AND_MEAN", "BIGGER_THAN")
+
 	substrRight <- function(x, n){
 		substr(x, nchar(x)-n+1, nchar(x))
 	}
 	
 	max_score = 0
 	best_form = ""
-	total_yes = 0
 	
 	train[["TARGET"]] <- factor(train[["TARGET"]])
-	rec <- function(index, frm, max_score, best_form) {
+	
+	rec <- function(index, frm) {
 		if(index > length(features)) {
-			# print(frm)
-			# print(paste("Max was ", max_score, "with formula: ", best_form))
 			if(frm == "") {
 				return(" .")
 			}
 			return(frm)
 		}
 		
-		used_formula <- rec(index + 1, frm, max_score, best_form)
-		frm2 <- paste("TARGET", used_formula, sep=" ~")
-		# fom2 <- paste(as.factor(TARGET), used_formula, sepd=" ~")
-		print(frm2)
-		# fit <-  randomForest(as.formula(frm2), data = train, ntree=40, na.action = na.omit)
-		fit <-  naiveBayes(as.formula(frm2), data = train)
-		res <- calculate(fit)
-		# print(res)
-		# print(max_score)
-		vector <<- vector %>% cbind(c(res, frm2))
-		# if(substrRight(frm, 1) == "~") {
 		if(frm == "") {
 			formula = paste(frm, features[index], sep=" ")
 		}else {
 			formula = paste(frm, features[index], sep=" + ")
 		}
+		
+		used_formula <- formula
+		frm2 <- paste("TARGET", used_formula, sep=" ~")
+		print(frm2)
+		
+		if(model == 1) {
+			fit <-  naiveBayes(as.formula(frm2), data = train)	
+		}else if(model == 2) {
+			fit <-  randomForest(as.formula(frm2), data = train, ntree=50)
+		}else if(model == 3) {
+			fit <-  bagging(as.formula(frm2), data = train)
+		}else if(model == 4) {
+			fit <-  J48(as.formula(frm2), data = train)
+		}else if(model ==5) {
+			fit <-  svm(as.formula(frm2), data = train, type="C-classification")			
+		}
+		res <- calculate(fit)
 		if(as.numeric(res) > max_score) {
 			best_form <<- frm2
 			max_score <<- res
-			rec(index + 1, formula, as.numeric(res), frm2)
-		}else {
-			rec(index + 1, formula, max_score, best_form)
 		}
+		print("====================")
+		rec(index + 1, formula)
+		rec(index + 1, frm)
 	}
 
 	
-	rec(1, "", 0, "")
+	rec(1, "")
 	print(paste("Best score achieved ", max_score, "with formula: ", best_form))
 }
+```
 
+
+```{r try every possible formula attributes with the following algorithms}
+sink("output/naivebayes.out", append=FALSE)
+try_all(1)
+sink()
+sink()
+print("Done [naiveBayes]")
+
+sink("output/randomForest.out", append=FALSE)
+try_all(2)
+sink()
+print("Done [randomForest]")
+
+sink("output/bagging.out", append=FALSE)
+try_all(3)
+sink()
+print("Done [bagging]")
+# 
+sink("output/J48.out", append=FALSE)
+try_all(4)
+sink()
+print("Done [J48]")
+
+sink("output/svm.out", append=FALSE)
+try_all(5)
+sink()
+print("Done [svm]")
 
 ```
 
