@@ -82,10 +82,13 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 ```
 
 ```{r divide into train and test for local validation}
+divide_data <- function() {
 nr <- NROW(model_train)
 ind <- sample(nr, 0.7 * nr, replace = FALSE)
-train <- model_train[ind,]
-test <- model_train[-ind,]
+train <<- model_train[ind,]
+test <<- model_train[-ind,]
+}
+divide_data()
 ```
 
 ```{r calculate function}
@@ -105,8 +108,9 @@ calculate <- function(fit) {
 }
 ```
 
+
 ```{r naive bayes}
-fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + sum + MEAN_USAGE, data = train)
+fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = train)
 calculate(fit)
 ```
 
@@ -116,17 +120,26 @@ calculate(fit)
 ```
 
 ```{r decision tree}
-fit <- J48(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE, data = train)
+fit <- J48(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = train)
 calculate(fit)
 ```
 
 ```{r random forest}
-fit <- randomForest(as.factor(TARGET) ~ ., data = train, ntree=50)
+fit <- randomForest(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = train, ntree=100)
 calculate(fit)
 ```
 
+
+```{r, submission 10}
+fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=model_train)
+pred <- predict(fit, newdata = model_test)
+submit(10, fit, model_test)
+```
+
+
 ```{r try all funcion}
 try_all <- function(model) {
+# 	features <- c("TOTAL_USAGE", "BIGGER_THAN")
 	features <- c("TOTAL_USAGE", "AVG_PER_SESSION", "SUM_EXCEEDING", "MEAN_USAGE", "WEIGHTED_AVG", "DIFF_BETWEEN_6th_AND_MEAN", "BIGGER_THAN")
 
 	substrRight <- function(x, n){
@@ -166,8 +179,26 @@ try_all <- function(model) {
 			fit <-  J48(as.formula(frm2), data = train)
 		}else if(model ==5) {
 			fit <-  svm(as.formula(frm2), data = train, type="C-classification")			
+		}else {
+			fit <- glm(as.formula(frm2), data=train, family = binomial())
+			pred <- predict(fit, newdata = test, type = "response")
+			test$PREDICTED_TARGET = pred
+			test <- test %>% mutate(PREDICTED_TARGET = as.numeric(PREDICTED_TARGET >= 0.5))
+			confusion_matrix<- table(test$PREDICTED_TARGET, test$TARGET)
+			print(confusion_matrix)
+			TN <- confusion_matrix[1,1]
+			TP <- confusion_matrix[2,2]
+			FP <- confusion_matrix[2,1]
+			FN <- confusion_matrix[1,2]
+			# accuracy <- (TP + TN) / (test %>% nrow)
+			accuracy <- (TP + TN) / (TN + TP + FP + FN)
+			print(accuracy)
+			res <- TP
 		}
-		res <- calculate(fit)
+		if(model != 6) {
+			res <- calculate(fit)	
+		}
+		
 		if(as.numeric(res) > max_score) {
 			best_form <<- frm2
 			max_score <<- res
@@ -182,7 +213,6 @@ try_all <- function(model) {
 	print(paste("Best score achieved ", max_score, "with formula: ", best_form))
 }
 ```
-
 
 ```{r try every possible formula attributes with the following algorithms}
 sink("output/naivebayes.out", append=FALSE)
@@ -214,14 +244,39 @@ print("Done [svm]")
 ```
 
 
+```{r}
+# divide_data()
+pred <- predict(fit, newdata = test)
+test$PREDICTED_TARGET = pred
+test$PREDICTED_TARGET <- test %>% apply(1, function(row) {
+		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 135) {
+			return(1)
+		}else {
+			return(row[['PREDICTED_TARGET']])
+		}
+	})
+confusion_matrix<- table(test$PREDICTED_TARGET, test$TARGET)
+confusion_matrix
+TN <- confusion_matrix[1,1]
+TP <- confusion_matrix[2,2]
+FP <- confusion_matrix[2,1]
+FN <- confusion_matrix[1,2]
+accuracy <- (TP + TN) / (TN + TP + FP + FN)
+accuracy
+accuracy_one <-  TP / (FN + TP)
+accuracy_zero <- TN / (TN + FP)
+paste("accurace_one ", accuracy_one)
+paste("accurace_zero ", accuracy_zero)
+```
+
+
+
 ```{r submit}
 submit <- function(number, fit, data) {
-	
-	ind <- which(data %>% names == "TARGET")
+
 	pred <- predict(fit, newdata = data)
 	print(pred %>% unique)
 	
-	# data <- data %>% dplyr::select(CONTRACT_KEY)
 	data$PREDICTED_TARGET = pred
 	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
 		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 105) {

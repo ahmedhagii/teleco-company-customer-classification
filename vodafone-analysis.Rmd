@@ -5,15 +5,21 @@ date: "May 23, 2016"
 output: html_document
 ---
 
-```{r, message=FALSE, comment=NA}
+```{r}
+library(dplyr)
+library(ggplot2)
+```
 
-library(plyr)
+```{r reading data, message=FALSE, comment=NA, cache=TRUE}
+
+# library(plyr)
 library(e1071)
 library(rpart)
 library(randomForest)
 library(neuralnet)
 library(dplyr)
 library(ipred)
+
 library(ggplot2)
 library(RWeka)
 
@@ -25,10 +31,10 @@ model_test <- read.csv("data/test.csv")
 daily <- read.csv("data/daily_aggregate.csv")
 ```
 
-renaming columns
+## renaming columns
 
-```{r}
-model_train <- model_train %>% rename(
+```{r renaming columns, cache=TRUE}
+model_train <- model_train %>% dplyr::rename(
     MONTH1_USAGE = X206_USAGE,
     MONTH2_USAGE = X207_USAGE,
     MONTH3_USAGE = X208_USAGE,
@@ -41,7 +47,7 @@ model_train <- model_train %>% rename(
     MONTH5_SESSIONS = X210_SESSION_COUNT
 )
 
-model_test <- model_test %>% rename(
+model_test <- model_test %>% dplyr::rename(
     MONTH1_USAGE = X206_USAGE,
     MONTH2_USAGE = X207_USAGE,
     MONTH3_USAGE = X208_USAGE,
@@ -55,8 +61,8 @@ model_test <- model_test %>% rename(
 )
 ```
 
-adding the total usage, total sessions and avg usage per session
-```{r}
+## adding the total usage, total sessions and avg usage per session
+```{r adding totals, cache=TRUE}
 add_totals <- function(data) {
 	data$TOTAL_USAGE <- data %>% apply(1, function(row) {
 	return(row[['MONTH1_USAGE']] + row[['MONTH2_USAGE']] + row[['MONTH3_USAGE']] + row[['MONTH4_USAGE']] + row[['MONTH5_USAGE']])
@@ -78,63 +84,201 @@ model_test <- add_totals(model_test)
 ```
 
 
-plotting the TOTAL USAGE against the TOTAL SESSIONS (taking a subset of the data to remove the extreme outliers)
-```{r}
-model_train %>% subset(TOTAL_USAGE < 100000) %>% subset(TOTAL_SESSIONS < 20000) %>% ggplot(aes(x=TOTAL_SESSIONS, y=TOTAL_USAGE)) + geom_point(aes(color=factor(TARGET))) +
-scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
-	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40))
+```{r adding the roaming counter to datasets, cache=TRUE}
+daily_roaming_counter <- daily %>% group_by(CONTRACT_KEY) %>% summarise(roaming_counter = sum(as.numeric(ROAMING_FLAG)))
+
+hash<-new.env()
+for(i in 1:(daily_roaming_counter %>% nrow)) {
+	hash[[as.character(daily_roaming_counter[i,]$CONTRACT_KEY)]] <- daily_roaming_counter[i,]$roaming_counter
+}
+
+add_roaming_counter <- function(data) {
+	data$ROAMING_COUNTER <- data %>% apply(1, function(row) {
+		if(is.null(hash[[as.character(row[['CONTRACT_KEY']])]])) {
+			return(NA)
+		}
+		return(hash[[as.character(row[['CONTRACT_KEY']])]])
+	})
+	data
+}
+
+model_train <- add_roaming_counter(model_train)
+model_test <- add_roaming_counter(model_test)
 ```
 
 
-Average per session vs. Total sessions
-```{r}
-model_train %>% subset(TOTAL_SESSIONS < 10000) %>% subset(AVG_PER_SESSION < 500) %>% ggplot(aes(x=TOTAL_SESSIONS, y=AVG_PER_SESSION)) + geom_point(aes(color=factor(TARGET))) +
-scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
-	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40))
+```{r adding the diff features, cache=TRUE}
+add_differences <- function(data) {
+	subtrain <- data
+	subtrain$diff_one2 <- subtrain %>% apply(1, function(x) {
+		(x[['MONTH3_USAGE']] / mean(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']]))) * 100
+	})
+	
+	subtrain$diff_two2 <- subtrain %>% apply(1, function(x) {
+		(x[['MONTH4_USAGE']] / mean(c(x[['MONTH2_USAGE']], x[['MONTH3_USAGE']]))) * 100
+	})
+	
+	subtrain$diff_three2 <- subtrain %>% apply(1, function(x) {
+		(x[['MONTH5_USAGE']] / mean(c(x[['MONTH3_USAGE']], x[['MONTH4_USAGE']]))) * 100
+	})
+
+	subtrain
+}
+
+add_differences2 <- function(data) {
+	subtrain <- data
+	subtrain$diff_one <- subtrain %>% apply(1, function(x) {
+		if(x[['MONTH3_USAGE']] > mean(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	
+	subtrain$diff_two <- subtrain %>% apply(1, function(x) {
+		if(x[['MONTH4_USAGE']] > mean(c(x[['MONTH2_USAGE']], x[['MONTH3_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	
+	subtrain$diff_three <- subtrain %>% apply(1, function(x) {
+		if(x[['MONTH5_USAGE']] > mean(c(x[['MONTH3_USAGE']], x[['MONTH4_USAGE']])) + 500) {
+			return(1)
+		}
+		return(0)
+	})
+	subtrain
+}
+
+model_train <- add_differences(model_train)
+model_train <- add_differences2(model_train)
+
+model_test <- add_differences(model_test)
+model_test <- add_differences2(model_test)
+```
+
+## adding mean usage and the number of times the user exceeded his/her average in past months
+```{r mean usage and number of times exceeding, cache=TRUE}
+model_train <- model_train %>% mutate(SUM_EXCEEDING = diff_one + diff_two + diff_three)
+model_train <- model_train %>% mutate(MEAN_USAGE = TOTAL_USAGE / 5)
+
+model_test <- model_test %>% mutate(SUM_EXCEEDING = diff_one + diff_two + diff_three) %>% mutate(MEAN_USAGE = TOTAL_USAGE / 5)
+```
+
+## weighted average method to predict the usage of the 6th month
+```{r weighted average and a feature influenced from the graph, cache=TRUE}
+model_train <- model_train %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
+
+model_test <- model_test %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
+
+model_test <- model_test %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
+
+model_train <- model_train %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
+
+model_train <- model_train %>% mutate(BIGGER_THAN = as.numeric(DIFF_BETWEEN_6th_AND_MEAN) > 105)
+
+model_test <- model_test %>% mutate(BIGGER_THAN = as.numeric(DIFF_BETWEEN_6th_AND_MEAN) > 105)
+
+model_train$BIGGER_THAN <- as.numeric(model_train$BIGGER_THAN)
+model_test$BIGGER_THAN <- as.numeric(model_test$BIGGER_THAN)
+```
+
+
+plotting the Total Usage against the Total Sessions (taking a subset of the data to remove the extreme outliers to better fir the plot)
+Figure(1)
+```{r, cache=TRUE}
+model_train %>% 
+	subset(TOTAL_USAGE < 100000) %>% subset(TOTAL_SESSIONS < 20000) %>% 
+	ggplot(aes(x=TOTAL_SESSIONS, y=TOTAL_USAGE)) + 
+	geom_point(aes(color=factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	labs(title="Total usage for 5 months vs. Total number of sessions (Figure 1)", x="Total Number of Sessions", y="5 Months Total Usage")
+
+```
+
+
+```{r, cache=TRUE}
+model_train %>% 
+	subset(TOTAL_SESSIONS < 10000) %>% subset(AVG_PER_SESSION < 500) %>% 
+	ggplot(aes(x=TOTAL_SESSIONS, y=AVG_PER_SESSION)) + 
+	geom_point(aes(color=factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	labs(title="Average usage per session vs. Total number of sessions (Figure 2)", x="Total Number of Sessions", y="Usage Per Session")
 ```
 
 
 Total usage density:
-```{r}
-model_train %>% subset(TOTAL_USAGE < 50000) %>% 
+```{r Total usage density, cache=TRUE}
+model_train %>% 
+	subset(TOTAL_USAGE < 75000) %>% 
 	ggplot(aes(TOTAL_USAGE, fill=factor(TARGET))) +
 	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
     geom_density(alpha=I(0.7)) +
 	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + 
-	labs(x="Total usage for 5 months", y="density")
-	
+	labs(title="Density of total usage for 5 months (Figure 3)", x="Total usage for 5 months", y="Density")
 ```
 
 
 Average per session density:
-```{r}
-model_train %>% subset(AVG_PER_SESSION < 25) %>% 
+```{r Average per session density, cache=TRUE}
+model_train %>% 
+	subset(AVG_PER_SESSION < 25) %>% 
 	ggplot(aes(AVG_PER_SESSION, fill=factor(TARGET))) +
 	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
     geom_density(alpha=I(0.7)) +
 	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + 
-	labs(x="Average Usage Per Session", y="density")
-	
+	labs(title="Density of average usage per session (Figure 4)", x="Average Usage Per Session", y="Density")
 ```
 
 
 Weighted average vs. Average usage:
-```{r}
-model_train %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
-
-model_train %>% subset(MEAN_USAGE < 15000) %>% ggplot(aes(x=MEAN_USAGE, y=WEIGHTED_AVG)) + geom_point(aes(color=factor(TARGET))) +
-scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
-	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + scale_x_continuous(breaks = round(seq(min(model_train$MEAN_USAGE), max(model_train$MEAN_USAGE), by = 1000),1)) +
-  scale_y_continuous(breaks = round(seq(min(model_train$WEIGHTED_AVG), max(model_train$WEIGHTED_AVG), by = 1000),1))
+```{r Weighted average vs. Average usage, cache=TRUE, fig.width=11, fig.height=8}
+model_train %>% 
+	subset(MEAN_USAGE < 10000) %>% 
+	ggplot(aes(x=MEAN_USAGE, y=WEIGHTED_AVG)) + 
+	geom_point(aes(color=factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.text.x = element_text(size=10,angle=45)) +
+	theme(axis.title.x = element_text(size=12)) +
+	theme(plot.title = element_text(size=12)) +
+	scale_x_continuous(breaks = floor(seq(min(model_train$MEAN_USAGE), max(model_train$MEAN_USAGE), by = 500))) +
+  	scale_y_continuous(breaks = floor(seq(min(model_train$WEIGHTED_AVG), max(model_train$WEIGHTED_AVG), by = 1000))) +
+	labs(title = "Forecasted 6th month vs. Mean of 5 months (Figure 5)", x="5 Months Mean Usage", y="6th Month usage")
 ```
 
-
-```{r}
-model_train %>% subset(DIFF_BETWEEN_6th_AND_MEAN < 500) %>% subset(DIFF_BETWEEN_6th_AND_MEAN > -500) %>%
+Figure(6)
+```{r Density of forecasted - mean, cache=TRUE, fig.width=12, fig.height=7}
+model_train %>% 
+	subset(DIFF_BETWEEN_6th_AND_MEAN < 500) %>% 
+	subset(DIFF_BETWEEN_6th_AND_MEAN > -500) %>%
 	ggplot(aes(DIFF_BETWEEN_6th_AND_MEAN, fill=factor(TARGET))) +
 	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
     geom_density(alpha=I(0.7)) +
-	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + 
-	labs(x="Difference between predicted 6th month and average", y="density") + scale_x_continuous(breaks = round(seq(min(model_train$DIFF_BETWEEN_6th_AND_MEAN), max(model_train$DIFF_BETWEEN_6th_AND_MEAN), by = 30),1))
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.title.x = element_text(size=12)) +
+	theme(axis.text.x = element_text(size=10,angle=45)) + 
+	theme(plot.title = element_text(size=13,angle=0)) + 
+	labs(title = "Density for (6th_Month - Five_Months_Avg) (Figure 6)", x="Difference between forecasted 6th month and average", y="Density") + 
+	scale_x_continuous(breaks = ceiling(seq(min(model_train$DIFF_BETWEEN_6th_AND_MEAN), max(model_train$DIFF_BETWEEN_6th_AND_MEAN), by = 25)))
 ```
 
+<!-- Weighted average vs. Average usage: -->
+```{r Diff vs. Avg per session, cache=TRUE, fig.width=13, echo=FALSE}
+model_train %>% 
+	subset(AVG_PER_SESSION < 1000) %>%
+	subset(TOTAL_SESSIONS < 50000) %>% 
+	subset(DIFF_BETWEEN_6th_AND_MEAN < 1000) %>%
+	subset(DIFF_BETWEEN_6th_AND_MEAN > -1000) %>%
+	ggplot(aes(x=DIFF_BETWEEN_6th_AND_MEAN, y=TOTAL_SESSIONS)) +
+	geom_point(aes(color=factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=14,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.text.x = element_text(size=12,angle=45)) +
+	theme(axis.title.x = element_text(size=14)) +
+	theme(plot.title = element_text(size=14)) +
+	scale_x_continuous(breaks = floor(seq(-1000, 1000, by = 100))) +
+	labs(title = "Diff between 6th month and mean vs. Number of sessions (Figure 7)", x="Diff Between 6th and Mean", y="Total Sessions")
+```
