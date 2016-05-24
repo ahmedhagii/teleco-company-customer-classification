@@ -307,7 +307,7 @@ submit <- function(number, fit, data) {
 	# data <- data %>% dplyr::select(CONTRACT_KEY)
 	data$PREDICTED_TARGET = pred
 	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
-		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 200) {
+		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 105) {
 			return(1)
 		}else {
 			return(row[['PREDICTED_TARGET']])
