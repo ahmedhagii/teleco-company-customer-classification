@@ -132,8 +132,14 @@ calculate(fit)
 
 ```{r, submission 10}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=model_train)
-pred <- predict(fit, newdata = model_test)
+# pred <- predict(fit, newdata = model_test)
 submit(10, fit, model_test)
+```
+
+```{r, submission 11}
+fit <- J48(as.factor(TARGET) ~ AVG_PER_SESSION + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN, data=model_train)
+# pred <- predict(fit, newdata = model_test)
+submit(11, fit, model_test)
 ```
 
 
@@ -279,14 +285,14 @@ submit <- function(number, fit, data) {
 	
 	data$PREDICTED_TARGET = pred
 	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
-		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 105) {
+		if(as.numeric(row[['DIFF_BETWEEN_6th_AND_MEAN']]) > 135) {
 			return(1)
 		}else {
 			return(row[['PREDICTED_TARGET']])
 		}
 	})
 	
-	data <- data %>% select(CONTRACT_KEY, PREDICTED_TARGET)
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
 	
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
