@@ -5,96 +5,6 @@ date: "May 23, 2016"
 output: html_document
 ---
 
-```{r, message=FALSE, comment=NA}
-
-library(plyr)
-library(e1071)
-library(rpart)
-library(randomForest)
-library(neuralnet)
-library(dplyr)
-library(ipred)
-library(RWeka)
-
-set.seed(10)
-
-
-# model_train <- read.csv("data/train.csv")
-# model_test <- read.csv("data/test.csv")
-```
-
-```{r adding the roaming counter to datasets}
-daily_roaming_counter <- daily %>% group_by(CONTRACT_KEY) %>% summarise(roaming_counter = sum(as.numeric(ROAMING_FLAG)))
-
-hash<-new.env()
-for(i in 1:(daily_roaming_counter %>% nrow)) {
-	hash[[as.character(daily_roaming_counter[i,]$CONTRACT_KEY)]] <- daily_roaming_counter[i,]$roaming_counter
-}
-
-add_roaming_counter <- function(data) {
-	data$ROAMING_COUNTER <- data %>% apply(1, function(row) {
-		if(is.null(hash[[as.character(row[['CONTRACT_KEY']])]])) {
-			return(NA)
-		}
-		return(hash[[as.character(row[['CONTRACT_KEY']])]])
-	})
-	data
-}
-
-model_train <- add_roaming_counter(model_train)
-model_test <- add_roaming_counter(model_test)
-```
-
-```{r adding the diff features}
-add_differences <- function(data) {
-	subtrain <- data
-	subtrain$diff_one2 <- subtrain %>% apply(1, function(x) {
-		(x[['MONTH3_USAGE']] / mean(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']]))) * 100
-	})
-	
-	subtrain$diff_two2 <- subtrain %>% apply(1, function(x) {
-		(x[['MONTH4_USAGE']] / mean(c(x[['MONTH2_USAGE']], x[['MONTH3_USAGE']]))) * 100
-	})
-	
-	subtrain$diff_three2 <- subtrain %>% apply(1, function(x) {
-		(x[['MONTH5_USAGE']] / mean(c(x[['MONTH3_USAGE']], x[['MONTH4_USAGE']]))) * 100
-	})
-
-	subtrain
-}
-
-add_differences2 <- function(data) {
-	subtrain <- data
-	subtrain$diff_one <- subtrain %>% apply(1, function(x) {
-		if(x[['MONTH3_USAGE']] > mean(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']])) + 500) {
-			return(1)
-		}
-		return(0)
-	})
-	
-	subtrain$diff_two <- subtrain %>% apply(1, function(x) {
-		if(x[['MONTH4_USAGE']] > mean(c(x[['MONTH2_USAGE']], x[['MONTH3_USAGE']])) + 500) {
-			return(1)
-		}
-		return(0)
-	})
-	
-	subtrain$diff_three <- subtrain %>% apply(1, function(x) {
-		if(x[['MONTH5_USAGE']] > mean(c(x[['MONTH3_USAGE']], x[['MONTH4_USAGE']])) + 500) {
-			return(1)
-		}
-		return(0)
-	})
-	subtrain
-}
-
-model_train <- add_differences(model_train)
-model_train <- add_differences2(model_train)
-
-model_test <- add_differences(model_test)
-model_test <- add_differences2(model_test)
-```
-
 ```{r cross validation function}
 cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE, type=NULL, frm=NULL) {
     # folds
@@ -171,41 +81,11 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 }
 ```
 
-```{r}
-model_train <- model_train %>% mutate(SUM_EXCEEDING = diff_one + diff_two + diff_three)
-model_train <- model_train %>% mutate(MEAN_USAGE = TOTAL_USAGE / 5)
-
-model_test <- model_test %>% mutate(SUM_EXCEEDING = diff_one + diff_two + diff_three) %>% mutate(MEAN_USAGE = TOTAL_USAGE / 5)
-```
-
-```{r}
-model_train <- model_train %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
-
-model_test <- model_test %>% mutate(WEIGHTED_AVG = (5*MONTH5_USAGE + 4*MONTH4_USAGE + 3*MONTH3_USAGE + 2*MONTH2_USAGE + MONTH1_USAGE) / 15)
-
-model_test <- model_test %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
-
-model_train <- model_train %>% mutate(DIFF_BETWEEN_6th_AND_MEAN = WEIGHTED_AVG - MEAN_USAGE)
-
-model_train <- model_train %>% mutate(BIGGER_THAN = as.numeric(DIFF_BETWEEN_6th_AND_MEAN) > 105)
-
-model_test <- model_test %>% mutate(BIGGER_THAN = as.numeric(DIFF_BETWEEN_6th_AND_MEAN) > 105)
-
-model_train$BIGGER_THAN <- as.numeric(model_train$BIGGER_THAN)
-model_test$BIGGER_THAN <- as.numeric(model_test$BIGGER_THAN)
-```
-
-
 ```{r divide into train and test for local validation}
 nr <- NROW(model_train)
 ind <- sample(nr, 0.7 * nr, replace = FALSE)
 train <- model_train[ind,]
 test <- model_train[-ind,]
-
-# nr <- NROW(model2)
-# ind <- sample(nr, 0.7 * nr, replace = FALSE)
-# train <- model2[ind,]
-# test <- model2[-ind,]
 ```
 
 ```{r calculate function}
@@ -225,13 +105,13 @@ calculate <- function(fit) {
 }
 ```
 
-```{r Best score with naive bayes}
+```{r naive bayes}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + sum + MEAN_USAGE, data = train)
 calculate(fit)
 ```
 
 ```{r bagging}
-fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + sum + MEAN_USAGE, data = train)
+fit <-  bagging(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = model_train, type='class')
 calculate(fit)
 ```
 
@@ -245,10 +125,8 @@ fit <- randomForest(as.factor(TARGET) ~ ., data = train, ntree=50)
 calculate(fit)
 ```
 
-
-```{r}
+```{r try all funcion}
 try_all <- function(model) {
-# 	features <- c("TOTAL_USAGE", "BIGGER_THAN")
 	features <- c("TOTAL_USAGE", "AVG_PER_SESSION", "SUM_EXCEEDING", "MEAN_USAGE", "WEIGHTED_AVG", "DIFF_BETWEEN_6th_AND_MEAN", "BIGGER_THAN")
 
 	substrRight <- function(x, n){
@@ -359,14 +237,3 @@ submit <- function(number, fit, data) {
 	write.csv(data, file, row.names = FALSE)
 }
 ```
-
-
-```{r}
-# J48
-# pred     0     1
-#    0 16923  3283
-#    1  1141  1280
-# [1] 0.8044814
-# [1] "TARGET ~ MEAN_USAGE"
-```
-
