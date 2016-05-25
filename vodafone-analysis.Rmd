@@ -28,7 +28,7 @@ set.seed(10)
 
 model_train <- read.csv("data/train.csv")
 model_test <- read.csv("data/test.csv")
-daily <- read.csv("data/daily_aggregate.csv")
+# daily <- read.csv("data/daily_aggregate.csv")
 ```
 
 ## renaming columns
@@ -183,6 +183,31 @@ model_train$BIGGER_THAN <- as.numeric(model_train$BIGGER_THAN)
 model_test$BIGGER_THAN <- as.numeric(model_test$BIGGER_THAN)
 ```
 
+## merging the train and test datasets with the contract_ref to fll up the information
+```{r}
+model_train <- merge(x = model_train, y = contract_ref, by = 'CONTRACT_KEY')
+model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
+```
+
+## renaming all gender data to 'Male', 'Female' or 'NA' 
+```{r}
+rename_gender <- function(data) {
+data$GENDER[data$GENDER == 'M'] <- 'Male'
+data$GENDER[data$GENDER == 'm'] <- 'Male'
+data$GENDER[data$GENDER == 'F'] <- 'Female'
+data$GENDER[data$GENDER == 'f'] <- 'Female'
+data$GENDER[data$GENDER == 'Unknown'] <- NA
+data$GENDER[data$GENDER == 'Not Entered'] <- NA
+data$GENDER <- factor(data$GENDER)
+return(data)
+}
+
+model_test <- rename_gender(model_test)
+model_train <- rename_gender(model_train)
+
+model_train$VALUE_SEGMENT[model_train$VALUE_SEGMENT == 'N/A'] <- NA
+model_train$VALUE_SEGMENT <- factor(model_train$VALUE_SEGMENT)
+```
 
 plotting the Total Usage against the Total Sessions (taking a subset of the data to remove the extreme outliers to better fir the plot)
 Figure(1)
@@ -281,4 +306,19 @@ model_train %>%
 	theme(plot.title = element_text(size=14)) +
 	scale_x_continuous(breaks = floor(seq(-1000, 1000, by = 100))) +
 	labs(title = "Diff between 6th month and mean vs. Number of sessions (Figure 7)", x="Diff Between 6th and Mean", y="Total Sessions")
+```
+
+Figure(7)
+```{r Density of forecasted - mean, cache=TRUE, fig.width=12, fig.height=7}
+model_train %>% 
+	subset(TARGET == 0) %>%
+	ggplot(aes(RATE_PLAN, fill=factor(TARGET))) +
+	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+    stat_count(alpha=I(0.7)) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.title.x = element_text(size=12)) +
+	theme(axis.text.x = element_text(size=10,angle=45)) + 
+	theme(plot.title = element_text(size=13,angle=0)) + 
+	labs(title = "Density for (6th_Month - Five_Months_Avg) (Figure 6)", x="Difference between forecasted 6th month and average", y="Density") + 
+	scale_x_discrete(breaks = seq(1,179, by = 1))
 ```
