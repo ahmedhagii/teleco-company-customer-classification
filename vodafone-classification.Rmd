@@ -5,6 +5,10 @@ date: "May 23, 2016"
 output: html_document
 ---
 
+```{r}
+library(aod)
+```
+
 ```{r cross validation function}
 cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE, type=NULL, frm=NULL) {
     # folds
@@ -110,12 +114,12 @@ calculate <- function(fit) {
 
 
 ```{r naive bayes}
-fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = train)
+fit <- naiveBayes(TARGET ~ TOTAL_USAGE + AVG_PER_SESSION + WEIGHTED_AVG + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN + GENDER, data = train)
 calculate(fit)
 ```
 
 ```{r bagging}
-fit <-  bagging(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = model_train, type='class')
+fit <-  bagging(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG + RATE_PLAN + AGE, data = train, type='class')
 calculate(fit)
 ```
 
@@ -130,17 +134,37 @@ calculate(fit)
 ```
 
 
-```{r, submission 10}
+```{r submission 10}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=model_train)
 # pred <- predict(fit, newdata = model_test)
 submit(10, fit, model_test)
 ```
 
-```{r, submission 11}
+```{r submission 11}
 fit <- J48(as.factor(TARGET) ~ AVG_PER_SESSION + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN, data=model_train)
 # pred <- predict(fit, newdata = model_test)
 submit(11, fit, model_test)
 ```
+
+# Submission 12:
+```{r submission 12 - general linera regression}
+logit <- glm(TARGET ~ TOTAL_USAGE + TOTAL_SESSIONS + AVG_PER_SESSION + SUM_EXCEEDING + MEAN_USAGE, data = train)
+logit %>% summary
+```
+As we can see, the model doesn't use the MEAN_USAGE feature, so let's drop it.
+```{r}
+logit <- glm(TARGET ~ TOTAL_USAGE + TOTAL_SESSIONS + AVG_PER_SESSION + SUM_EXCEEDING + DIFF_BETWEEN_6th_AND_MEAN, data=train, family=binomial)
+logit %>% summary
+
+exp(coef(logit))
+```
+From the exponentiated coefficients above, we can say that increasing one unit in most of the features used in the model, will increase thethe odds of the TARGET being 1 by ~ 1
+
+```{r}
+logit <- lm(TARGET ~ TOTAL_USAGE + TOTAL_SESSIONS + AVG_PER_SESSION + SUM_EXCEEDING + DIFF_BETWEEN_6th_AND_MEAN, data=train)
+plot(logit)
+```
+
 
 
 ```{r try all funcion}
@@ -248,6 +272,8 @@ sink()
 print("Done [svm]")
 
 ```
+
+
 
 
 ```{r}
