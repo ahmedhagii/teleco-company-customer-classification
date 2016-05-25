@@ -22,12 +22,14 @@ library(ipred)
 
 library(ggplot2)
 library(RWeka)
-
+library(forecast)
 set.seed(10)
 
 
 model_train <- read.csv("data/train.csv")
 model_test <- read.csv("data/test.csv")
+calender_ref <- read.csv("data/calendar_ref.csv")
+contract_ref <- read.csv("data/contract_ref.csv")
 # daily <- read.csv("data/daily_aggregate.csv")
 ```
 

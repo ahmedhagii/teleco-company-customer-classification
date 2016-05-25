@@ -201,8 +201,50 @@ model_train$DRIFT_FORECAST <- model_train %>% apply(1, function(x) {
 })
 ```
 
+Let's train a naive bayes algorithm adding the new feature, and try a submission
+```{r}
+fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST, data=train)
+divide_data()
+pred <- predict(fit, newdata = test[,-12])
+table <- table(pred, test$TARGET)
+table
+test$PRED = pred
+```
 
 ```{r}
+test %>% subset(PRED == 0) %>% subset(TARGET ==0) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 0) %>% nrow) * 100
+test %>% subset(PRED == 0) %>% subset(TARGET ==1) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 1) %>% nrow) * 100
+```
+Now by running the above two commands, we can see if we change those predicted as no while their drift forecasted 6th month exceeds the mean usage by 400 to yes, it would screw up ~10% of the no cases, while correcting ~20% of the yes cases. If the data was fairly sampled between cases of yes and no (which is not the case here, 60% is no, 40% is yes) then this tradeoff would be fine.
+
+```{r}
+fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + DRIFT_FORECAST, data=model_train)
+submit <- function(number, fit, data) {
+
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
+		if(as.numeric(row[['MONTH5_USAGE']]) > as.numeric(row[['MEAN_USAGE']]) + 500) {
+			return(1)
+		}else {
+			return(row[['PREDICTED_TARGET']])
+		}
+	})
+	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(13, fit, model_test)
+```
+It scored the same as my best score so far (0.68609)
+
+
+
+```{r ignore this for now}
 calender_ref <- read.csv("data/calendar_ref.csv")
 model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
 model_train <- merge(x = model_train, y = contract_ref, by = 'CONTRACT_KEY')
@@ -223,26 +265,7 @@ svm_dataset <- svm_dataset %>% dplyr::select(-GENDER, -ROAMING_COUNTER)
 
 ```
 
-
-
-```{r}
-fit <- randomForest(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + DRIFT_FORECAST, data = train, ntree=100)
-
-	pred <- predict(fit, newdata = test[, -12])
-	confusion_matrix <- table(pred, test$TARGET)
-	confusion_matrix
-	
-	TN <- confusion_matrix[1,1]
-	TP <- confusion_matrix[2,2]
-	FP <- confusion_matrix[2,1]
-	FN <- confusion_matrix[1,2]
-	# accuracy <- (TP + TN) / (test %>% nrow)
-	accuracy <- (TP + TN) / (TN + TP + FP + FN)
-	accuracy
-```
-
-
-```{r, cache=TRUE, fig.width=11, fig.height=8}
+```{r drifted vs mean, cache=TRUE, fig.width=11, fig.height=8}
 model_train %>% 
 	subset(MEAN_USAGE < 10000) %>% 
 	subset(DRIFT_FORECAST < 30000) %>% 
@@ -255,10 +278,10 @@ model_train %>%
 	theme(plot.title = element_text(size=12)) +
 	scale_x_continuous(breaks = floor(seq(min(model_train$MEAN_USAGE), max(model_train$MEAN_USAGE), by = 500))) +
   	scale_y_continuous(breaks = floor(seq(min(model_train$DRIFT_FORECAST), max(model_train$DRIFT_FORECAST), by = 1000))) +
-	labs(title = "Forecasted 6th month vs. Mean of 5 months (Figure 5)", x="5 Months Mean Usage", y="6th Month usage")
+	labs(title = "Drift Forecasted 6th month vs. Mean of 5 months", x="5 Months Mean Usage", y="6th Month usage")
 ```
 
-```{r diff between drift and avg bs. avg, cache=TRUE, fig.width=11, fig.height=8}
+```{r diff between drift and avg vs. avg, cache=TRUE, fig.width=11, fig.height=8}
 model_train %>% 
 	subset(MEAN_USAGE < 10000) %>% 
 	subset(DRIFT_FORECAST < 30000) %>% 
