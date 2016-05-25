@@ -180,8 +180,123 @@ submit <- function(number, fit, data) {
 submit(12, fit, model_test)
 ```
 
-
 # Submission 13:
+Let's try some forecasting methods to try and project the usage of the 6th month, then we can simple check if it will pass the average of the past 5 months or not, or we can use the forecasted data in enhancing the performance of the models. I already tried the weighted average forecasting and added the 'WEIGHTED_AVG' feature. Now let's try the (drifting method), where the change in the forecasted data is affected by the average change in previous data.
+```{r}
+model_train$DRIFT_FORECAST <- model_train %>% apply(1, function(x) {
+	cc <- as.numeric(
+		c(
+			x[['MONTH1_USAGE']], 
+			x[['MONTH2_USAGE']], 
+			x[['MONTH3_USAGE']], 
+			x[['MONTH4_USAGE']], 
+			x[['MONTH5_USAGE']]
+		))
+	frc <- rwf(cc, h=5, drift=TRUE)
+	if(mean(frc$mean[1:3]) > 0) {
+		return(mean(frc$mean[1:3]))
+	}else {
+		return(cc[5])	
+	}
+})
+```
+
+
+```{r}
+calender_ref <- read.csv("data/calendar_ref.csv")
+model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
+model_train <- merge(x = model_train, y = contract_ref, by = 'CONTRACT_KEY')
+
+
+yes <- model_train %>% subset(TARGET == 1)
+no <- model_train %>% subset(TARGET == 0)
+svm_dataset <- yes %>% sample_n(size = 4000)
+svm_dataset <- yes %>% sample_n(size = 4000)
+svm_dataset %>% nrow
+svm_dataset <- svm_dataset %>% rbind(no %>% sample_n(size= 16000))
+
+svm_dataset <- svm_dataset[sample(nrow(svm_dataset)), ]
+svm_dataset <- svm_dataset %>% dplyr::select(-diff_one, -diff_one2, -diff_two, -diff_two2, -diff_three, -diff_three2)
+
+svm_dataset.with_nas <- svm_dataset
+svm_dataset <- svm_dataset %>% dplyr::select(-GENDER, -ROAMING_COUNTER)
+
+```
+
+
+
+```{r}
+fit <- randomForest(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + DRIFT_FORECAST, data = train, ntree=100)
+
+	pred <- predict(fit, newdata = test[, -12])
+	confusion_matrix <- table(pred, test$TARGET)
+	confusion_matrix
+	
+	TN <- confusion_matrix[1,1]
+	TP <- confusion_matrix[2,2]
+	FP <- confusion_matrix[2,1]
+	FN <- confusion_matrix[1,2]
+	# accuracy <- (TP + TN) / (test %>% nrow)
+	accuracy <- (TP + TN) / (TN + TP + FP + FN)
+	accuracy
+```
+
+
+```{r, cache=TRUE, fig.width=11, fig.height=8}
+model_train %>% 
+	subset(MEAN_USAGE < 10000) %>% 
+	subset(DRIFT_FORECAST < 30000) %>% 
+	ggplot(aes(x=MEAN_USAGE, y=DRIFT_FORECAST)) + 
+	geom_point(aes(color=factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.text.x = element_text(size=10,angle=45)) +
+	theme(axis.title.x = element_text(size=12)) +
+	theme(plot.title = element_text(size=12)) +
+	scale_x_continuous(breaks = floor(seq(min(model_train$MEAN_USAGE), max(model_train$MEAN_USAGE), by = 500))) +
+  	scale_y_continuous(breaks = floor(seq(min(model_train$DRIFT_FORECAST), max(model_train$DRIFT_FORECAST), by = 1000))) +
+	labs(title = "Forecasted 6th month vs. Mean of 5 months (Figure 5)", x="5 Months Mean Usage", y="6th Month usage")
+```
+
+```{r diff between drift and avg bs. avg, cache=TRUE, fig.width=11, fig.height=8}
+model_train %>% 
+	subset(MEAN_USAGE < 10000) %>% 
+	subset(DRIFT_FORECAST < 30000) %>% 
+	mutate(new_diff = DRIFT_FORECAST - MEAN_USAGE) %>%
+	subset(new_diff < 1000) %>%
+	subset(new_diff > -1000) %>%
+	ggplot(aes(x=MEAN_USAGE, y=new_diff)) + 
+	geom_point(aes(color=factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.text.x = element_text(size=10,angle=45)) +
+	theme(axis.title.x = element_text(size=12)) +
+	theme(plot.title = element_text(size=12)) +
+	scale_x_continuous(breaks = floor(seq(min(model_train$MEAN_USAGE), max(model_train$MEAN_USAGE), by = 500))) +
+  	scale_y_continuous(breaks = floor(seq(from = -1000, to=1000, by = 100))) +
+	labs(title = "Forecasted 6th month vs. Mean of 5 months (Figure 5)", x="5 Months Mean Usage", y="6th Month usage")
+```
+
+```{r density of diff between drift and avg, cache=TRUE, fig.width=12, fig.height=7}
+model_train %>% 
+	mutate(new_diff = DRIFT_FORECAST - MEAN_USAGE) %>%
+	subset(new_diff < 1000) %>%
+	subset(new_diff > -1000) %>%
+	ggplot(aes(new_diff, fill=factor(TARGET))) +
+	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+    geom_density(alpha=I(0.7)) +
+	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
+	theme(axis.title.x = element_text(size=12)) +
+	theme(axis.text.x = element_text(size=10,angle=45)) + 
+	theme(plot.title = element_text(size=13,angle=0)) + 
+	labs(title = "Density for (6th_Month - Five_Months_Avg) (Figure 6)", x="Difference between forecasted 6th month and average", y="Density") + 
+	scale_x_continuous(breaks = ceiling(seq(min(model_train$DIFF_BETWEEN_6th_AND_MEAN), max(model_train$DIFF_BETWEEN_6th_AND_MEAN), by = 25)))
+```
+
+
+
+
+# Submission 14:
 ```{r submission 12 - general linera regression}
 logit <- glm(TARGET ~ TOTAL_USAGE + TOTAL_SESSIONS + AVG_PER_SESSION + SUM_EXCEEDING + MEAN_USAGE, data = train)
 logit %>% summary
