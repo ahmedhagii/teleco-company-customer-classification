@@ -201,70 +201,6 @@ model_train$DRIFT_FORECAST <- model_train %>% apply(1, function(x) {
 })
 ```
 
-Let's train a naive bayes algorithm adding the new feature, and try a submission
-```{r}
-fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST, data=train)
-divide_data()
-pred <- predict(fit, newdata = test[,-12])
-table <- table(pred, test$TARGET)
-table
-test$PRED = pred
-```
-
-```{r}
-test %>% subset(PRED == 0) %>% subset(TARGET ==0) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 0) %>% nrow) * 100
-test %>% subset(PRED == 0) %>% subset(TARGET ==1) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 1) %>% nrow) * 100
-```
-Now by running the above two commands, we can see if we change those predicted as no while their drift forecasted 6th month exceeds the mean usage by 400 to yes, it would screw up ~10% of the no cases, while correcting ~20% of the yes cases. If the data was fairly sampled between cases of yes and no (which is not the case here, 60% is no, 40% is yes) then this tradeoff would be fine.
-
-```{r}
-fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + DRIFT_FORECAST, data=model_train)
-submit <- function(number, fit, data) {
-
-	pred <- predict(fit, newdata = data)
-	print(pred %>% unique)
-	
-	data$PREDICTED_TARGET = pred
-	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
-		if(as.numeric(row[['MONTH5_USAGE']]) > as.numeric(row[['MEAN_USAGE']]) + 500) {
-			return(1)
-		}else {
-			return(row[['PREDICTED_TARGET']])
-		}
-	})
-	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
-	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
-	
-	file <- paste("submissions/submission-", number, ".csv", sep="")
-	write.csv(data, file, row.names = FALSE)
-}
-submit(13, fit, model_test)
-```
-It scored the same as my best score so far (0.68609)
-
-
-
-```{r ignore this for now}
-calender_ref <- read.csv("data/calendar_ref.csv")
-model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
-model_train <- merge(x = model_train, y = contract_ref, by = 'CONTRACT_KEY')
-
-
-yes <- model_train %>% subset(TARGET == 1)
-no <- model_train %>% subset(TARGET == 0)
-svm_dataset <- yes %>% sample_n(size = 4000)
-svm_dataset <- yes %>% sample_n(size = 4000)
-svm_dataset %>% nrow
-svm_dataset <- svm_dataset %>% rbind(no %>% sample_n(size= 16000))
-
-svm_dataset <- svm_dataset[sample(nrow(svm_dataset)), ]
-svm_dataset <- svm_dataset %>% dplyr::select(-diff_one, -diff_one2, -diff_two, -diff_two2, -diff_three, -diff_three2)
-
-svm_dataset.with_nas <- svm_dataset
-svm_dataset <- svm_dataset %>% dplyr::select(-GENDER, -ROAMING_COUNTER)
-
-```
-
 ```{r drifted vs mean, cache=TRUE, fig.width=11, fig.height=8}
 model_train %>% 
 	subset(MEAN_USAGE < 10000) %>% 
@@ -317,9 +253,112 @@ model_train %>%
 ```
 
 
+Let's train a naive bayes algorithm adding the new feature, and try a submission
+```{r}
+divide_data()
+fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST, data=train)
+pred <- predict(fit, newdata = test[,-12])
+table <- table(pred, test$TARGET)
+table
+test$PRED = pred
+```
 
+```{r}
+test %>% subset(PRED == 0) %>% subset(TARGET ==0) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 0) %>% nrow) * 100
+test %>% subset(PRED == 0) %>% subset(TARGET ==1) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 1) %>% nrow) * 100
+```
+Now by running the above two commands, we can see if we change those predicted as no while their drift forecasted 6th month exceeds the mean usage by 400 to yes, it would screw up ~10% of the no cases, while correcting ~20% of the yes cases. If the data was fairly sampled between cases of yes and no (which is not the case here, 60% is no, 40% is yes) then this tradeoff would be fine.
+
+```{r}
+fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + DRIFT_FORECAST, data=model_train)
+submit <- function(number, fit, data) {
+
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
+		if(as.numeric(row[['MONTH5_USAGE']]) > as.numeric(row[['MEAN_USAGE']]) + 500) {
+			return(1)
+		}else {
+			return(row[['PREDICTED_TARGET']])
+		}
+	})
+	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(13, fit, model_test)
+```
+It scored the same as my best score so far (0.68609)
 
 # Submission 14:
+
+Let's train a bagging algorithm adding the new feature, and try a submission
+```{r}
+# divide_data()
+fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST + WEIGHTED_AVG, data=train)
+# fit <- bagging(as.factor(TARGET) ~ MEAN_USAGE + DRIFT_FORECAST + WEIGHTED_AVG, data=train)
+pred <- predict(fit, newdata = test[,-12])
+confusion_matrix <- table(pred, test$TARGET)
+confusion_matrix
+TN <- confusion_matrix[1,1]
+TP <- confusion_matrix[2,2]
+FP <- confusion_matrix[2,1]
+FN <- confusion_matrix[1,2]
+# accuracy <- (TP + TN) / (test %>% nrow)
+accuracy <- (TP + TN) / (TN + TP + FP + FN)
+accuracy
+test$PRED = pred
+```
+
+```{r}
+fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST + WEIGHTED_AVG, data=model_train)
+
+submit <- function(number, fit, data) {
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
+	data$PREDICTED_TARGET[data$MONTH5_USAGE > data$MEAN_USAGE + 500] <- 1
+	data$PREDICTED_TARGET[data$DIFF_BETWEEN_6th_AND_MEAN > 105] <- 1
+	
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(14, fit, model_test)
+```
+
+
+```{r ignore this for now}
+calender_ref <- read.csv("data/calendar_ref.csv")
+model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
+model_train <- merge(x = model_train, y = contract_ref, by = 'CONTRACT_KEY')
+
+
+yes <- model_train %>% subset(TARGET == 1)
+no <- model_train %>% subset(TARGET == 0)
+svm_dataset <- yes %>% sample_n(size = 4000)
+svm_dataset <- yes %>% sample_n(size = 4000)
+svm_dataset %>% nrow
+svm_dataset <- svm_dataset %>% rbind(no %>% sample_n(size= 16000))
+
+svm_dataset <- svm_dataset[sample(nrow(svm_dataset)), ]
+svm_dataset <- svm_dataset %>% dplyr::select(-diff_one, -diff_one2, -diff_two, -diff_two2, -diff_three, -diff_three2)
+
+svm_dataset.with_nas <- svm_dataset
+svm_dataset <- svm_dataset %>% dplyr::select(-GENDER, -ROAMING_COUNTER)
+
+```
+
+
+
+
+# Submission 15:
 ```{r submission 12 - general linera regression}
 logit <- glm(TARGET ~ TOTAL_USAGE + TOTAL_SESSIONS + AVG_PER_SESSION + SUM_EXCEEDING + MEAN_USAGE, data = train)
 logit %>% summary
