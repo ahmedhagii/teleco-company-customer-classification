@@ -147,13 +147,14 @@ fit <- randomForest(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCE
 calculate(fit)
 ```
 
-
+# Submission 10:
 ```{r submission 10}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=model_train)
 # pred <- predict(fit, newdata = model_test)
 submit(10, fit, model_test)
 ```
 
+# Submission 11:
 ```{r submission 11}
 fit <- J48(as.factor(TARGET) ~ AVG_PER_SESSION + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN, data=model_train)
 # pred <- predict(fit, newdata = model_test)
@@ -195,7 +196,7 @@ submit(12, fit, model_test)
 ```
 
 # Submission 13:
-Let's try some forecasting methods to try and project the usage of the 6th month, then we can simple check if it will pass the average of the past 5 months or not, or we can use the forecasted data in enhancing the performance of the models. I already tried the weighted average forecasting and added the 'WEIGHTED_AVG' feature. Now let's try the (drifting method), where the change in the forecasted data is affected by the average change in previous data.
+Let's try some forecasting methods to try and project the usage of the 6th month, then we can simply check if it will pass the average of the past 5 months or not, or we can use the forecasted data in enhancing the performance of the models. I already tried the weighted average forecasting and added the 'WEIGHTED_AVG' feature. Now let's try the (drifting method), where the change in the forecasted data is affected by the average change in previous data.
 ```{r}
 model_train$DRIFT_FORECAST <- model_train %>% apply(1, function(x) {
 	cc <- as.numeric(
@@ -325,6 +326,7 @@ submit(13, fit, model_test)
 ```
 It scored the same as my best score so far (0.68609)
 
+
 # Submission 14:
 
 Let's train a bagging algorithm adding the new feature, and try a submission
@@ -365,6 +367,171 @@ submit(14, fit, model_test)
 ```
 it scored (0.68506)
 
+
+# Submission 15:
+Outliers are bad for some of the classification models, while others are resistant to such outliers. Tree based models are not affected by outliers that much, because they split the data base on equations like “if predictor A is greater
+than X, predict the class to be Y”. However, let's try to remove the outliers and see if that will affect our naiveBayes model.
+```{r}
+model_train <- model_train %>% subset(AVG_PER_SESSION < 10)
+model_train <- model_train %>% subset(TOTAL_SESSIONS < 5000)
+model_train <- model_train %>% subset(TOTAL_USAGE < 7000)
+model_train <- model_train %>% subset(WEIGHTED_AVG < 1500)
+
+fit <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + AVG_PER_SESSION, model_train)
+```
+
+
+```{r}
+submit <- function(number, fit, data) {
+
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
+	data$PREDICTED_TARGET[data$SUM_EXCEEDING < 1] <- 0
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(15, fit, model_test)
+```
+It did improve the performance and we got a score of (0.70661) :)
+
+# Submission 16:
+
+```{r}
+submit <- function(number, fit, data) {
+
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	data$PREDICTED_TARGET <- data %>% apply(1, function(row) {
+		if(as.numeric(row[['MONTH5_USAGE']]) > as.numeric(row[['MEAN_USAGE']]) + 500) {
+			return(1)
+		}else {
+			return(row[['PREDICTED_TARGET']])
+		}
+	})
+	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
+	data$PREDICTED_TARGET[data$SUM_EXCEEDING < 1] <- 0
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(16, fit, model_test)
+```
+
+For this one all I did was adding the effect of the 'naive forecasting' method where the forecasted usage of the new month (6th one) is simply the usage of the last month. The score we got was the same as last submission.
+
+
+# Submisison xx:
+
+Naivebayes is my best algorithm till now with an accuracy of (0.7818093) and correctly identifying 2183/4471 of the yes cases, but it missclassifies a 2649/18156 of the no cases which is a lot compared to other algorithms. So in this submission I'll try to build me a brigade of classifiers with the naivebayes as the main man (maybe giving it a higher weight) and the rest are supposed to bring down those no cases misses.
+
+```{r}
+# fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=train)
+# pred <- predict(fit, test[,c(-12, -34)])
+# confusion_matrix <- table(pred, test$TARGET)
+# confusion_matrix
+# TN <- confusion_matrix[1,1]
+# 	TP <- confusion_matrix[2,2]
+# 	FP <- confusion_matrix[2,1]
+# 	FN <- confusion_matrix[1,2]
+# accuracy <- (TP + TN) / test %>% nrow
+# accuracy
+
+brigade <- function() {
+	nb <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + MEAN_AVG_SESSION + MEAN_TOTAL_SESSION, data=train)
+	
+	dt <- J48(factor(TARGET) ~ AVG_PER_SESSION + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN, data = train)
+	
+	rf <- randomForest(factor(TARGET) ~ TOTAL_USAGE + MEAN_USAGE + WEIGHTED_AVG + DIFF_BETWEEN_6th_AND_MEAN, data = train, ntree=50)
+	
+	print("here")
+	pred_nb <- predict(nb, test[,c(-12, -34)])
+	pred_dt <- predict(dt, test[,c(-12, -34)])
+	pred_rf <- predict(rf, test[,c(-12, -34)])
+	
+	
+	pred <- (as.numeric(pred_nb) - 1) + (as.numeric(pred_dt) - 1) + (as.numeric(pred_rf) - 1)
+	pred <- (pred / 3) %>% round(0)
+	
+	confusion_matrix <- table(pred, test$TARGET)
+	print(confusion_matrix)
+	TN <- confusion_matrix[1,1]
+	TP <- confusion_matrix[2,2]
+	FP <- confusion_matrix[2,1]
+	FN <- confusion_matrix[1,2]
+	accuracy <- (TP + TN) / test %>% nrow
+	print(accuracy)
+}
+```
+
+```{r}
+model_train <- model_train %>% 
+	mutate(temp1 = numeric(MONTH2_USAGE > MONTH1_USAGE + 500))
+
+# model_train$MONTH1_USAGE <- as.numeric(model_train$MONTH1_USAGE)
+# model_train$MONTH2_USAGE <- as.numeric(model_train$MONTH2_USAGE)
+# model_train$MONTH3_USAGE <- as.numeric(model_train$MONTH3_USAGE)
+# model_train$MONTH4_USAGE <- as.numeric(model_train$MONTH4_USAGE)
+# model_train$MONTH5_USAGE <- as.numeric(model_train$MONTH5_USAGE)
+
+model_train$temp0 <- model_train %>% apply(1, function(x) {
+	if(x[['MONTH2_USAGE']] > mean(as.numeric(c(x[['MONTH1_USAGE']]))) + 500) {
+		return(1)
+	}
+	return(0)
+})
+
+model_train$temp1 <- model_train %>% apply(1, function(x) {
+	if(x[['MONTH3_USAGE']] > mean(as.numeric(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']]))) + 500) {
+		return(1)
+	}
+	return(0)
+})
+
+model_train$temp2 <- model_train %>% apply(1, function(x) {
+	if(x[['MONTH4_USAGE']] > mean(as.numeric(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']], x[['MONTH3_USAGE']]))) + 500) {
+		return(1)
+	}
+	return(0)
+})
+model_train$temp3 <- model_train %>% apply(1, function(x) {
+	if(x[['MONTH5_USAGE']] > mean(as.numeric(c(x[['MONTH1_USAGE']], x[['MONTH2_USAGE']], x[['MONTH3_USAGE']], x[['MONTH4_USAGE']]))) + 500) {
+		return(1)
+	}
+	return(0)
+})
+
+
+model_train$CORRECT_SUM_EXCEED <- model_train$temp0 + model_train$temp1 + model_train$temp2 + model_train$temp3
+
+# model_train$MEAN_AVG_SESSION[model_train$TARGET == 1] <- 10.917
+# model_train$MEAN_AVG_SESSION[model_train$TARGET == 0] <- 5.8189
+# 
+# model_train$MEAN_TOTAL_SESSION[model_train$TARGET == 1] <- 4062
+# model_train$MEAN_TOTAL_SESSION[model_train$TARGET == 0] <- 2836
+
+# model_train$MONTH1_USAGE = mt$MONTH1_USAGE
+# model_train$MONTH2_USAGE = mt$MONTH2_USAGE
+# model_train$MONTH3_USAGE = mt$MONTH3_USAGE
+# model_train$MONTH4_USAGE = mt$MONTH4_USAGE
+# model_train$MONTH5_USAGE = mt$MONTH5_USAGE
+
+
+# temp2 = numeric(MONTH3_USAGE > mean(c(MONTH1_USAGE, MONTH2_USAGE))),
+# 		   temp3 = numeric(MONTH4_USAGE > mean(c(MONTH1_USAGE, MONTH2_USAGE, MONTH3_USAGE))),
+# 		   temp4 = numeric(MONTH5_USAGE > mean(c(MONTH1_USAGE, MONTH2_USAGE, MONTH3_USAGE, MONTH4_USAGE)))
+```
+
+
+
+
 ```{r ignore this for now}
 calender_ref <- read.csv("data/calendar_ref.csv")
 model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
@@ -386,10 +553,7 @@ svm_dataset <- svm_dataset %>% dplyr::select(-GENDER, -ROAMING_COUNTER)
 
 ```
 
-
-
-
-# Submission 15:
+# Submission xx:
 ```{r submission 12 - general linera regression}
 logit <- glm(TARGET ~ TOTAL_USAGE + TOTAL_SESSIONS + AVG_PER_SESSION + SUM_EXCEEDING + MEAN_USAGE, data = train)
 logit %>% summary
