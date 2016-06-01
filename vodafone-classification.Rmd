@@ -100,13 +100,13 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 ```
 
 ```{r divide into train and test for local validation}
-divide_data <- function() {
-nr <- NROW(model_train)
+divide_data <- function(data) {
+nr <- NROW(data)
 ind <- sample(nr, 0.7 * nr, replace = FALSE)
-train <<- model_train[ind,]
-test <<- model_train[-ind,]
+train <<- data[ind,]
+test <<- data[-ind,]
 }
-divide_data()
+divide_data(model_train)
 ```
 
 ```{r calculate function}
@@ -122,10 +122,11 @@ calculate <- function(fit) {
 	# accuracy <- (TP + TN) / (test %>% nrow)
 	accuracy <- (TP + TN) / (TN + TP + FP + FN)
 	print(accuracy)
+	print(paste("accuracy ones ", (TP / (TP + FN))))
+	print(paste("accuracy zeros ", (TN / (TN + FP))))
 	return(TP)
 }
 ```
-
 
 ```{r naive bayes}
 fit <- naiveBayes(TARGET ~ TOTAL_USAGE + AVG_PER_SESSION + WEIGHTED_AVG + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN + GENDER, data = train)
@@ -369,8 +370,8 @@ it scored (0.68506)
 
 
 # Submission 15:
-Outliers are bad for some of the classification models, while others are resistant to such outliers. Tree based models are not affected by outliers that much, because they split the data base on equations like “if predictor A is greater
-than X, predict the class to be Y”. However, let's try to remove the outliers and see if that will affect our naiveBayes model.
+Outliers are bad for some of the classification models, while others are resistant to such outliers. Tree based models are not affected by outliers that much, because they split the data based on equations like “if predictor A is greater
+than X, predict the class to be Y”. However, let's try to remove some of the extremes and see if that will affect our naiveBayes model.
 ```{r}
 model_train <- model_train %>% subset(AVG_PER_SESSION < 10)
 model_train <- model_train %>% subset(TOTAL_SESSIONS < 5000)
@@ -427,6 +428,114 @@ submit(16, fit, model_test)
 
 For this one all I did was adding the effect of the 'naive forecasting' method where the forecasted usage of the new month (6th one) is simply the usage of the last month. The score we got was the same as last submission.
 
+
+
+# Submission 17:
+```{r}
+confusion_matrix = table(test$PRED, test$TARGET)
+FN <- confusion_matrix[1,2]
+FP <- confusion_matrix[2,1]
+TP <- confusion_matrix[2,2]
+TN <- confusion_matrix[1,1]
+accuracy <- (TP + TN) / (TN + TP + FP + FN)
+confusion_matrix
+accuracy
+```
+
+```{r}
+submit <- function(number, fit, data) {
+
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(17, fit, model_test)
+```
+
+# Submission 18:
+```{r}
+fit <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + DRIFT_FORECAST + diff_two2, data = model_train)
+```
+
+```{r}
+submit <- function(number, fit, data) {
+
+	pred <- predict(fit, newdata = data)
+	print(pred %>% unique)
+	
+	data$PREDICTED_TARGET = pred
+	# data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
+	# data$PREDICTED_TARGET[data$SUM_EXCEEDING < 1] <- 0
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+submit(18, fit, model_test)
+```
+
+# Submission 19:
+```{r}
+pred <- predict(fit, newdata = temp[,-12])
+	
+temp$PRED = pred
+temp$PRED <- temp %>% apply(1, function(row) {
+		if(as.numeric(row[['MONTH5_USAGE']]) > as.numeric(row[['MEAN_USAGE']]) + 500) {
+			return(1)
+		}else {
+			return(row[['PRED']])
+		}
+	})
+# temp$PRED[temp$DRIFT_FORECAST > temp$MEAN_USAGE + 400] <- 1
+temp$PRED[temp$SUM_EXCEEDING < 1] <- 0
+```
+
+```{r}
+temp %>%
+subset(DIFF_BETWEEN_6th_AND_MEAN > -500) %>%
+subset(DIFF_BETWEEN_6th_AND_MEAN < 500) %>%
+ggplot(aes(DIFF_BETWEEN_6th_AND_MEAN, fill=factor(PRED))) +
+scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
+geom_density(alpha=I(0.7))
+```
+
+```{r}
+fit <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + AVG_PER_SESSION, model_train)
+
+temp <- model_train
+temp$TOTAL_USAGE <- scale(temp$TOTAL_USAGE)
+temp$MEAN_USAGE <- scale(temp$MEAN_USAGE)
+temp$WEIGHTED_AVG <- scale(temp$WEIGHTED_AVG)
+temp$TOTAL_USAGE <- center(temp$TOTAL_USAGE)
+temp$MEAN_USAGE <- center(temp$MEAN_USAGE)
+temp$WEIGHTED_AVG <- center(temp$WEIGHTED_AVG)
+```
+
+
+
+# Random:
+```{r}
+fit <- glm(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + AVG_PER_SESSION, data=train, family = binomial())
+			pred <- predict(fit, newdata = test, type = "response")
+			test$PREDICTED_TARGET = pred
+			test <- test %>% mutate(PREDICTED_TARGET = as.numeric(PREDICTED_TARGET >= 0.5))
+```
+
+
+```{r}
+model_train$TOTAL_USAGE = tt$TOTAL_USAGE
+model_train$MEAN_USAGE = tt$MEAN_USAGE
+model_train$SUM_EXCEEDING = tt$SUM_EXCEEDING
+model_train$WEIGHTED_AVG = tt$WEIGHTED_AVG
+model_train$BIGGER_THAN = tt$BIGGER_THAN
+model_train$AVG_PER_SESSION = tt$AVG_PER_SESSION
+
+```
 
 # Submisison xx:
 
