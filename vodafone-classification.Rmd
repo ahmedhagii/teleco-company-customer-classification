@@ -17,6 +17,8 @@ library(ipred)
 library(ggplot2)
 library(RWeka)
 library(forecast)
+library(gbm)
+library(extraTrees)
 set.seed(10)
 
 model_train <- read.csv("data/augmented_train.csv")
@@ -391,7 +393,7 @@ submit <- function(number, fit, data) {
 	data$PREDICTED_TARGET = pred
 	data$PREDICTED_TARGET[data$DRIFT_FORECAST > data$MEAN_USAGE + 400] <- 1
 	data$PREDICTED_TARGET[data$SUM_EXCEEDING < 1] <- 0
-	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
 	
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
@@ -516,6 +518,11 @@ temp$MEAN_USAGE <- center(temp$MEAN_USAGE)
 temp$WEIGHTED_AVG <- center(temp$WEIGHTED_AVG)
 ```
 
+
+
+
+# Submission 24:
+Just a voting ensemble of all the past submissions, it got a score of 0.70543 which is not the best, but very good considering I took some very poor early submissions into consideration. Maybe I should try it again later, but only considering the hight score submissions.
 
 
 # Random:
