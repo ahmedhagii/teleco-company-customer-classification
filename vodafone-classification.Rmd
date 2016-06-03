@@ -25,7 +25,9 @@ model_train <- read.csv("data/augmented_train.csv")
 model_test <- read.csv("data/augmented_test.csv")
 ```
 
-```{r cross validation function}
+That 'augmented' data are the train and test data after merging it with the contract_ref and adding some features. Just made it this way so I can load it at once without executing the commands over and over again.
+
+```{r cross validation function, cache= TRUE}
 cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE, type=NULL, frm=NULL) {
     # folds
     k = folds
@@ -36,8 +38,8 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
     
     data[[class]] <- factor(data[[class]])
     
-    progress.bar <- create_progress_bar("text")
-    progress.bar$init(k)
+    # progress.bar <- create_progress_bar("text")
+    # progress.bar$init(k)
     
     accuracies = c()
     precisions = c()
@@ -91,7 +93,7 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
         recalls <- recalls %>% append(recall)
         f_scores <- f_scores %>% append(f_score)
         
-        progress.bar$step()
+        # progress.bar$step()
     }
     
     return (as.data.frame(list("Accuracy" = accuracies, 
@@ -101,7 +103,7 @@ cross_validate <- function(data, model, class, folds, ntree = NULL, print=FALSE,
 }
 ```
 
-```{r divide into train and test for local validation}
+```{r divide into train and test for local validation, cache= TRUE}
 divide_data <- function(data) {
 nr <- NROW(data)
 ind <- sample(nr, 0.7 * nr, replace = FALSE)
@@ -111,7 +113,7 @@ test <<- data[-ind,]
 divide_data(model_train)
 ```
 
-```{r calculate function}
+```{r calculate function, cache= TRUE}
 calculate <- function(fit) {
 	pred <- predict(fit, newdata = test[, -12])
 	confusion_matrix <- table(pred, test$TARGET)
@@ -130,42 +132,22 @@ calculate <- function(fit) {
 }
 ```
 
-```{r naive bayes}
-fit <- naiveBayes(TARGET ~ TOTAL_USAGE + AVG_PER_SESSION + WEIGHTED_AVG + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN + GENDER, data = train)
-calculate(fit)
-```
-
-```{r bagging}
-fit <-  bagging(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG + RATE_PLAN + AGE, data = train, type='class')
-calculate(fit)
-```
-
-```{r decision tree}
-fit <- J48(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = train)
-calculate(fit)
-```
-
-```{r random forest}
-fit <- randomForest(as.factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + WEIGHTED_AVG, data = train, ntree=100)
-calculate(fit)
-```
-
 # Submission 10:
-```{r submission 10}
+```{r submission 10, cache= TRUE}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=model_train)
 # pred <- predict(fit, newdata = model_test)
-submit(10, fit, model_test)
+# submit(10, fit, model_test)
 ```
 
 # Submission 11:
-```{r submission 11}
+```{r submission 11, cache= TRUE}
 fit <- J48(as.factor(TARGET) ~ AVG_PER_SESSION + DIFF_BETWEEN_6th_AND_MEAN + BIGGER_THAN, data=model_train)
 # pred <- predict(fit, newdata = model_test)
-submit(11, fit, model_test)
+# submit(11, fit, model_test)
 ```
 
 # Submission 12:
-```{r}
+```{r, cache= TRUE}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=model_train)
 
 submit <- function(number, fit, data) {
@@ -195,12 +177,12 @@ submit <- function(number, fit, data) {
 	write.csv(data, file, row.names = FALSE)
 }
 
-submit(12, fit, model_test)
+# submit(12, fit, model_test)
 ```
 
 # Submission 13:
 Let's try some forecasting methods to try and project the usage of the 6th month, then we can simply check if it will pass the average of the past 5 months or not, or we can use the forecasted data in enhancing the performance of the models. I already tried the weighted average forecasting and added the 'WEIGHTED_AVG' feature. Now let's try the (drifting method), where the change in the forecasted data is affected by the average change in previous data.
-```{r}
+```{r, cache= TRUE}
 model_train$DRIFT_FORECAST <- model_train %>% apply(1, function(x) {
 	cc <- as.numeric(
 		c(
@@ -289,8 +271,8 @@ model_train %>%
 
 
 Let's train a naive bayes algorithm adding the new feature, and try a submission
-```{r}
-divide_data()
+```{r, cache= TRUE}
+divide_data(model_train)
 fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST, data=train)
 pred <- predict(fit, newdata = test[,-12])
 table <- table(pred, test$TARGET)
@@ -298,13 +280,13 @@ table
 test$PRED = pred
 ```
 
-```{r}
+```{r, cache= TRUE}
 test %>% subset(PRED == 0) %>% subset(TARGET ==0) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 0) %>% nrow) * 100
 test %>% subset(PRED == 0) %>% subset(TARGET ==1) %>% subset(DRIFT_FORECAST > MEAN_USAGE + 400) %>% nrow / (test %>% subset(TARGET == 1) %>% nrow) * 100
 ```
-Now by running the above two commands, we can see if we change those predicted as no while their drift forecasted 6th month exceeds the mean usage by 400 to yes, it would screw up ~10% of the no cases, while correcting ~20% of the yes cases. If the data was fairly sampled between cases of yes and no (which is not the case here, 60% is no, 40% is yes) then this tradeoff would be fine.
+Now by running the above two commands, we can see if we change those predicted as no while their drift forecasted 6th month exceeds the mean usage by 400 to yes, it would screw up ~10% of the no cases, while correcting ~20% of the yes cases. If the data was fairly sampled between cases of yes and no (which is not the case here, 60% is no, 40% is yes) then this trade off would be fine.
 
-```{r}
+```{r, cache= TRUE}
 fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + DRIFT_FORECAST, data=model_train)
 submit <- function(number, fit, data) {
 
@@ -325,7 +307,7 @@ submit <- function(number, fit, data) {
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
-submit(13, fit, model_test)
+# submit(13, fit, model_test)
 ```
 It scored the same as my best score so far (0.68609)
 
@@ -333,7 +315,7 @@ It scored the same as my best score so far (0.68609)
 # Submission 14:
 
 Let's train a bagging algorithm adding the new feature, and try a submission
-```{r}
+```{r, cache= TRUE}
 # divide_data()
 fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST + WEIGHTED_AVG, data=train)
 # fit <- bagging(as.factor(TARGET) ~ MEAN_USAGE + DRIFT_FORECAST + WEIGHTED_AVG, data=train)
@@ -350,7 +332,7 @@ accuracy
 test$PRED = pred
 ```
 
-```{r}
+```{r, cache= TRUE}
 fit <- bagging(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + DRIFT_FORECAST + WEIGHTED_AVG, data=model_train)
 
 submit <- function(number, fit, data) {
@@ -366,7 +348,7 @@ submit <- function(number, fit, data) {
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
-submit(14, fit, model_test)
+# submit(14, fit, model_test)
 ```
 it scored (0.68506)
 
@@ -374,7 +356,7 @@ it scored (0.68506)
 # Submission 15:
 Outliers are bad for some of the classification models, while others are resistant to such outliers. Tree based models are not affected by outliers that much, because they split the data based on equations like “if predictor A is greater
 than X, predict the class to be Y”. However, let's try to remove some of the extremes and see if that will affect our naiveBayes model.
-```{r}
+```{r, cache= TRUE}
 model_train <- model_train %>% subset(AVG_PER_SESSION < 10)
 model_train <- model_train %>% subset(TOTAL_SESSIONS < 5000)
 model_train <- model_train %>% subset(TOTAL_USAGE < 7000)
@@ -384,7 +366,7 @@ fit <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WE
 ```
 
 
-```{r}
+```{r, cache= TRUE}
 submit <- function(number, fit, data) {
 
 	pred <- predict(fit, newdata = data)
@@ -398,13 +380,13 @@ data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
-submit(15, fit, model_test)
+# submit(15, fit, model_test)
 ```
 It did improve the performance and we got a score of (0.70661) :)
 
 # Submission 16:
 
-```{r}
+```{r, cache= TRUE}
 submit <- function(number, fit, data) {
 
 	pred <- predict(fit, newdata = data)
@@ -425,7 +407,7 @@ submit <- function(number, fit, data) {
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
-submit(16, fit, model_test)
+# submit(16, fit, model_test)
 ```
 
 For this one all I did was adding the effect of the 'naive forecasting' method where the forecasted usage of the new month (6th one) is simply the usage of the last month. The score we got was the same as last submission.
@@ -433,7 +415,7 @@ For this one all I did was adding the effect of the 'naive forecasting' method w
 
 
 # Submission 17:
-```{r}
+```{r, cache= TRUE}
 confusion_matrix = table(test$PRED, test$TARGET)
 FN <- confusion_matrix[1,2]
 FP <- confusion_matrix[2,1]
@@ -444,7 +426,7 @@ confusion_matrix
 accuracy
 ```
 
-```{r}
+```{r, cache= TRUE}
 submit <- function(number, fit, data) {
 
 	pred <- predict(fit, newdata = data)
@@ -456,15 +438,15 @@ submit <- function(number, fit, data) {
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
-submit(17, fit, model_test)
+# submit(17, fit, model_test)
 ```
 
 # Submission 18:
-```{r}
+```{r, cache= TRUE}
 fit <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + AVG_PER_SESSION + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + DRIFT_FORECAST + diff_two2, data = model_train)
 ```
 
-```{r}
+```{r, cache= TRUE}
 submit <- function(number, fit, data) {
 
 	pred <- predict(fit, newdata = data)
@@ -478,11 +460,11 @@ submit <- function(number, fit, data) {
 	file <- paste("submissions/submission-", number, ".csv", sep="")
 	write.csv(data, file, row.names = FALSE)
 }
-submit(18, fit, model_test)
+# submit(18, fit, model_test)
 ```
 
 # Submission 19:
-```{r}
+```{r, cache= TRUE}
 pred <- predict(fit, newdata = temp[,-12])
 	
 temp$PRED = pred
@@ -497,7 +479,7 @@ temp$PRED <- temp %>% apply(1, function(row) {
 temp$PRED[temp$SUM_EXCEEDING < 1] <- 0
 ```
 
-```{r}
+```{r, cache= TRUE}
 temp %>%
 subset(DIFF_BETWEEN_6th_AND_MEAN > -500) %>%
 subset(DIFF_BETWEEN_6th_AND_MEAN < 500) %>%
@@ -506,7 +488,7 @@ scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C
 geom_density(alpha=I(0.7))
 ```
 
-```{r}
+```{r, cache= TRUE}
 fit <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + AVG_PER_SESSION, model_train)
 
 temp <- model_train
@@ -519,36 +501,102 @@ temp$WEIGHTED_AVG <- center(temp$WEIGHTED_AVG)
 ```
 
 
+# Submission 20:
 
+```{r, cache= TRUE}
+fullSet <- c("SUM_EXCEEDING", "WEIGHTED_AVG", "BIGGER_THAN", "AVG_PER_SESSION", "MONTH5_USAGE", "DIFF_BETWEEN_6th_AND_MEAN", "TOTAL_USAGE", "MEAN_USAGE", "TARGET")
+
+new <- model_train[,fullSet] %>% subset(TARGET == 1) %>% rbind(model_train[,fullSet] %>% subset(TARGET == 0) %>% sample_n(size = 25000)) 
+new <- new[sample(nrow(new)),]
+fit.nb <- naiveBayes(factor(TARGET) ~ ., data = new)
+
+# fit.nb <- naiveBayes(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + AVG_PER_SESSION, data = new)
+
+new <- model_train[,fullSet] %>% subset(TARGET == 1) %>% rbind(model_train[,fullSet] %>% subset(TARGET == 0) %>% sample_n(size = 6500)) 
+new <- new[sample(nrow(new)),]
+fit.bagging <- svm(factor(TARGET) ~ ., data = new)
+
+new <- model_train[,fullSet] %>% subset(TARGET == 1) %>% rbind(model_train[,fullSet] %>% subset(TARGET == 0) %>% sample_n(size = 6500)) 
+new <- new[sample(nrow(new)),]
+fit.C50 <- svm(factor(TARGET) ~ ., data = new)
+
+new <- model_train[,fullSet] %>% subset(TARGET == 1) %>% rbind(model_train[,fullSet] %>% subset(TARGET == 0) %>% sample_n(size = 6500)) 
+new <- new[sample(nrow(new)),]
+fit.rf <- randomForest(factor(TARGET) ~ ., data = new, ntree=50)
+
+new <- model_train[,fullSet] %>% subset(TARGET == 1) %>% rbind(model_train[,fullSet] %>% subset(TARGET == 0) %>% sample_n(size = 6500)) 
+new <- new[sample(nrow(new)),]
+fit.svm <- svm(factor(TARGET) ~ ., data = new, type='C', kernel='radial')
+
+pred_nb <- predict(fit.nb, test[,c(-11)])
+pred_bagging <- predict(fit.bagging, test[,c(-11)])
+pred_c50 <- predict(fit.C50, test[,c(-11)])
+pred_rf <- predict(fit.rf, test[,c(-11)])
+# pred_svm <- predict(fit.svm, test[,c(-11)])
+	
+	
+pred <- (as.numeric(pred_nb) - 1) + (as.numeric(pred_bagging) - 1) + (as.numeric(pred_c50) - 1) + (as.numeric(pred_rf) - 1)
+pred <- (pred / 4) %>% round(0)
+
+test$PRED = pred
+confusion_matrix <- table(pred, test$TARGET)
+TN <- confusion_matrix[1,1]
+TP <- confusion_matrix[2,2]
+FP <- confusion_matrix[2,1]
+FN <- confusion_matrix[1,2]
+accuracy <- (TP + TN) / test %>% nrow
+accuracy1 <- (TP) / (FN + TP)
+accuracy0 <- (TN) / (TN + FP)
+confusion_matrix
+accuracy
+accuracy1
+accuracy0
+
+submit <- function(number, data) {
+
+	pred_nb <- predict(fit.nb, data)
+	pred_bagging <- predict(fit.bagging, data)
+	pred_c50 <- predict(fit.C50, data)
+	pred_rf <- predict(fit.rf, data)
+	pred_svm <- predict(fit.svm, data)
+		
+		
+	pred <- (as.numeric(pred_nb) - 1) + (as.numeric(pred_bagging) - 1) + (as.numeric(pred_c50) - 1) + (as.numeric(pred_rf) - 1)
+	pred <- (pred / 4) %>% round(0)
+
+	
+	data$PREDICTED_TARGET = pred
+	print(pred %>% unique)
+	data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+	file <- paste("submissions/submission-", number, ".csv", sep="")
+	write.csv(data, file, row.names = FALSE)
+}
+# submit(20, model_test)
+```
 
 # Submission 24:
 Just a voting ensemble of all the past submissions, it got a score of 0.70543 which is not the best, but very good considering I took some very poor early submissions into consideration. Maybe I should try it again later, but only considering the hight score submissions.
 
+# Submission 25:
+```{r, cache= TRUE}
+pr <- predict(second_fit, model_test[, fullSet[1:8]])
+data <- model_test
 
-# Random:
-```{r}
-fit <- glm(factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN + AVG_PER_SESSION, data=train, family = binomial())
-			pred <- predict(fit, newdata = test, type = "response")
-			test$PREDICTED_TARGET = pred
-			test <- test %>% mutate(PREDICTED_TARGET = as.numeric(PREDICTED_TARGET >= 0.5))
+data$PREDICTED_TARGET = pr
+data <- data %>% dplyr::select(CONTRACT_KEY, PREDICTED_TARGET)
+	
+# file <- paste("submissions/submission-", 25, ".csv", sep="")
+# write.csv(data, file, row.names = FALSE)
 ```
 
 
-```{r}
-model_train$TOTAL_USAGE = tt$TOTAL_USAGE
-model_train$MEAN_USAGE = tt$MEAN_USAGE
-model_train$SUM_EXCEEDING = tt$SUM_EXCEEDING
-model_train$WEIGHTED_AVG = tt$WEIGHTED_AVG
-model_train$BIGGER_THAN = tt$BIGGER_THAN
-model_train$AVG_PER_SESSION = tt$AVG_PER_SESSION
-
-```
 
 # Submisison xx:
 
 Naivebayes is my best algorithm till now with an accuracy of (0.7818093) and correctly identifying 2183/4471 of the yes cases, but it missclassifies a 2649/18156 of the no cases which is a lot compared to other algorithms. So in this submission I'll try to build me a brigade of classifiers with the naivebayes as the main man (maybe giving it a higher weight) and the rest are supposed to bring down those no cases misses.
 
-```{r}
+```{r, cache= TRUE}
 # fit <- naiveBayes(as.factor(TARGET) ~ TOTAL_USAGE + SUM_EXCEEDING + MEAN_USAGE + WEIGHTED_AVG + BIGGER_THAN, data=train)
 # pred <- predict(fit, test[,c(-12, -34)])
 # confusion_matrix <- table(pred, test$TARGET)
@@ -587,7 +635,7 @@ brigade <- function() {
 }
 ```
 
-```{r}
+```{r, cache= TRUE}
 model_train <- model_train %>% 
 	mutate(temp1 = numeric(MONTH2_USAGE > MONTH1_USAGE + 500))
 
@@ -648,7 +696,7 @@ model_train$CORRECT_SUM_EXCEED <- model_train$temp0 + model_train$temp1 + model_
 
 
 
-```{r ignore this for now}
+```{r ignore this for now, cache= TRUE}
 calender_ref <- read.csv("data/calendar_ref.csv")
 model_test <- merge(x = model_test, y = contract_ref, by = 'CONTRACT_KEY')
 model_train <- merge(x = model_train, y = contract_ref, by = 'CONTRACT_KEY')
@@ -701,7 +749,7 @@ ee %>% apply(1, function(x) {
 })
 ```
 
-
+A function to try different combinations of the formulas with different models and writing the output to a file, to compare between them:
 ```{r try all funcion}
 try_all <- function(model) {
 # 	features <- c("TOTAL_USAGE", "BIGGER_THAN")
@@ -866,3 +914,117 @@ submit <- function(number, fit, data) {
 	write.csv(data, file, row.names = FALSE)
 }
 ```
+
+
+
+## Trying a knn (k nearest neighbors) model with different Ks:
+```{r}
+accuracy <- rep(0, 12)
+accuracy0 <- rep(0, 12)
+accuracy1 <- rep(0, 12)
+k <- 5:12
+for(x in k){
+	p <- knn(train, test, factor(train$TARGET), k = x)
+	accuracy[x] <- mean(p == test$TARGET)
+	confusion_matrix <- table(p, test$TARGET)
+	TN <- confusion_matrix[1,1]
+	TP <- confusion_matrix[2,2]
+	FP <- confusion_matrix[2,1]
+	FN <- confusion_matrix[1,2]
+	accuracy_ <- (TP + TN) / test %>% nrow
+	accuracy1_ <- (TP) / (FN + TP)
+	accuracy0_ <- (TN) / (TN + FP)
+	accuracy0[x] = accuracy0_
+	accuracy1[x] = accuracy1_
+	# print(table(p, test$TARGET))
+}
+plot(k, accuracy[5:12], type='b')
+
+
+
+```
+
+
+# Final Submission and best scores:
+
+The following will be a recap of all I did in the last few submissiond and what got me the highest score.
+
+
+```{r}
+yala <- function(pred, data) {
+	data$PRED = pred
+confusion_matrix <- table(data$PRED, data$TARGET)
+TN <- confusion_matrix[1,1]
+TP <- confusion_matrix[2,2]
+FP <- confusion_matrix[2,1]
+FN <- confusion_matrix[1,2]
+accuracy_ <- (TP + TN) / data %>% nrow
+accuracy1_ <- (TP) / (FN + TP)
+accuracy0_ <- (TN) / (TN + FP)
+confusion_matrix %>% print
+accuracy_ %>% print
+accuracy1_ %>% print
+accuracy0_ %>% print
+}
+```
+
+This chunk was a try to implement something I read on the kaggle blogs, 'stacking of models' I guess. It sounded promising where we have layers of models, the first layer learns on the training data and predicts, then the next layers learns on those predictions. It's good cuz the early layers help identify the features and seperate between the predicted classes better. I didn't give it much time, but I threw a submission and got a score similar to my highs.
+
+```{r}
+# temp <- new
+half <- round((temp %>% nrow) / 2, 0)
+last <- temp %>% nrow
+train1 <- temp[1:half,]
+rest <- half + 1
+train2 <- temp[rest:last,]
+# fit <- randomForest(train1[,fullSet[1:8]], factor(train1$TARGET), ntree=500)
+fit <- naiveBayes(factor(TARGET) ~ ., data = train1)
+p2 <- predict(fit, train2[,fullSet[1:8]])
+# fit <- randomForest(train2[,fullSet[1:8]], factor(train2$TARGET), ntree=500)
+fit <- naiveBayes(factor(TARGET) ~ ., data = train2)
+p1 <- predict(fit, train1[,fullSet[1:8]])
+train1$TARGET = p1
+train2$TARGET = p2
+temp <- train1 %>% rbind(train2)
+temp <- temp[sample(nrow(temp)),]
+fit <- randomForest(temp[,fullSet[1:8]], factor(temp$TARGET), ntree=500)
+pred <- predict(fit, test[,fullSet[1:8]])
+```
+
+Random forest with 1000 trees is what I went with at the end. Moreover, I selected a subset of features that I believe were the best for the model from all the previous experiments I undersampled the no cases as they were 4 times the yes cases and that resulted in the models being extremely biased. SO I took a random 15177 (the number of no) yes cases and added them to the no cases. This resulted in a lot of improvement.
+
+```{r}
+temp <- model_train
+
+temp <- temp %>% mutate(DIFF1 = MONTH3_USAGE - mean(c(MONTH1_USAGE, MONTH2_USAGE)))
+temp <- temp %>% mutate(DIFF2 = MONTH4_USAGE - mean(c(MONTH1_USAGE, MONTH2_USAGE, MONTH3_USAGE)))
+temp <- temp %>% mutate(DIFF3 = MONTH5_USAGE - mean(c(MONTH1_USAGE, MONTH2_USAGE, MONTH3_USAGE, MONTH4_USAGE)))
+
+fullSet <- c("SUM_EXCEEDING", "WEIGHTED_AVG", "AVG_PER_SESSION", "MONTH5_USAGE", "TOTAL_USAGE", "MEAN_USAGE", "TARGET", "DIFF1", "DIFF2", "DIFF3", "MONTH1_USAGE", "MONTH2_USAGE", "MONTH3_USAGE", "MONTH4_USAGE")
+
+new <- temp[,fullSet] %>% subset(TARGET == 1) %>% rbind(temp[,fullSet] %>% subset(TARGET == 0) %>% sample_n(15177))
+new <- new[sample(nrow(new)),]
+
+divide_data(new)
+
+# fit.nb <- naiveBayes(factor(TARGET) ~ ., data = train, laplace = 2)
+fit.rf <- randomForest(factor(TARGET) ~ ., data = new, ntree=1000)
+# fit.J48 <- J48(factor(TARGET) ~ ., data = train)
+# fit.bag <- bagging(factor(TARGET) ~ ., data = train)
+# fit.svm <- svm(factor(TARGET) ~ ., data = train, type='C', kernel='radial')
+
+```
+
+```{r}
+pr.nb <- predict(fit.nb, test[,-8])
+pr.rf <- predict(fit.rf, test[,-8])
+pr.J48 <- predict(fit.J48, test[,-8])
+pr.bag <- predict(fit.bag, test[,-8])
+
+yala(pr.nb, test)
+yala(pr.rf, test)
+yala(pr.J48, test)
+yala(pr.bag, test)
+
+```
+

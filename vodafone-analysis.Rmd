@@ -30,7 +30,7 @@ model_train <- read.csv("data/train.csv")
 model_test <- read.csv("data/test.csv")
 calender_ref <- read.csv("data/calendar_ref.csv")
 contract_ref <- read.csv("data/contract_ref.csv")
-# daily <- read.csv("data/daily_aggregate.csv")
+daily <- read.csv("data/daily_aggregate.csv")
 ```
 
 ## renaming columns
@@ -65,24 +65,17 @@ model_test <- model_test %>% dplyr::rename(
 
 ## adding the total usage, total sessions and avg usage per session
 ```{r adding totals, cache=TRUE}
-add_totals <- function(data) {
-	data$TOTAL_USAGE <- data %>% apply(1, function(row) {
-	return(row[['MONTH1_USAGE']] + row[['MONTH2_USAGE']] + row[['MONTH3_USAGE']] + row[['MONTH4_USAGE']] + row[['MONTH5_USAGE']])
-})	
-	
-	data$TOTAL_SESSIONS <- data %>% apply(1, function(row) {
-	return(row[['MONTH1_SESSIONS']] + row[['MONTH2_SESSIONS']] + row[['MONTH3_SESSIONS']] + row[['MONTH4_SESSIONS']] + row[['MONTH5_SESSIONS']])
-})
-	
-	data$AVG_PER_SESSION <- data %>% apply(1, function(row) {
-	return(row[['TOTAL_USAGE']] / row[['TOTAL_SESSIONS']])
-})
-	
-	data
-}
+model_train <- model_train %>% mutate(TOTAL_USAGE = MONTH1_USAGE + MONTH2_USAGE + MONTH3_USAGE + MONTH4_USAGE + MONTH5_USAGE)
 
-model_train <- add_totals(model_train)
-model_test <- add_totals(model_test)
+model_train <- model_train %>% mutate(TOTAL_SESSIONS = MONTH1_SESSIONS + MONTH2_SESSIONS + MONTH3_SESSIONS + MONTH4_SESSIONS + MONTH5_SESSIONS)
+
+model_train <- model_train %>% mutate(AVG_PER_SESSION = TOTAL_USAGE / TOTAL_SESSIONS)
+
+model_test <- model_test %>% mutate(TOTAL_USAGE = MONTH1_USAGE + MONTH2_USAGE + MONTH3_USAGE + MONTH4_USAGE + MONTH5_USAGE)
+
+model_test <- model_test %>% mutate(TOTAL_SESSIONS = MONTH1_SESSIONS + MONTH2_SESSIONS + MONTH3_SESSIONS + MONTH4_SESSIONS + MONTH5_SESSIONS)
+
+model_test <- model_test %>% mutate(AVG_PER_SESSION = TOTAL_USAGE / TOTAL_SESSIONS)
 ```
 
 
@@ -276,20 +269,23 @@ model_train %>%
 	labs(title = "Forecasted 6th month vs. Mean of 5 months (Figure 5)", x="5 Months Mean Usage", y="6th Month usage")
 ```
 
+This plot shows that our method of predicting the usage of the 6th month (weighted average) makes sense in a way. Since, the upper portion of the graph is blue meaning that those with 6th month usage exceeding their mean are probably yes cases. If the points were totaly random or mixed, we would've known that the predicted 6th month is not correct.
+
+
 Figure(6)
 ```{r Density of forecasted - mean, cache=TRUE, fig.width=12, fig.height=7}
 model_train %>% 
 	subset(DIFF_BETWEEN_6th_AND_MEAN < 500) %>% 
 	subset(DIFF_BETWEEN_6th_AND_MEAN > -500) %>%
-	# ggplot(aes(DIFF_BETWEEN_6th_AND_MEAN, fill=factor(TARGET))) +
-	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) +
-    geom_density(alpha=I(0.7)) +
+	ggplot(aes(x=DIFF_BETWEEN_6th_AND_MEAN, color = factor(TARGET))) +
+	scale_color_manual("Target\n",labels = c("0", "1"), values = c("#EFADAD", "#69B5CD")) +
+    geom_density() +
 	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) +
 	theme(axis.title.x = element_text(size=12)) +
 	theme(axis.text.x = element_text(size=10,angle=45)) + 
 	theme(plot.title = element_text(size=13,angle=0)) + 
 	labs(title = "Density for (6th_Month - Five_Months_Avg) (Figure 6)", x="Difference between forecasted 6th month and average", y="Density") + 
-	scale_x_continuous(breaks = ceiling(seq(min(model_train$DIFF_BETWEEN_6th_AND_MEAN), max(model_train$DIFF_BETWEEN_6th_AND_MEAN), by = 25)))
+	scale_x_continuous(breaks = seq(from = -500, to = 500, by = 50))
 ```
 
 <!-- Weighted average vs. Average usage: -->
@@ -309,18 +305,3 @@ model_train %>%
 	scale_x_continuous(breaks = floor(seq(-1000, 1000, by = 100))) +
 	labs(title = "Diff between 6th month and mean vs. Number of sessions (Figure 7)", x="Diff Between 6th and Mean", y="Total Sessions")
 ```
-
-<!-- Figure(7) -->
-<!-- ```{r Density of forecasted - mean, cache=TRUE, fig.width=12, fig.height=7} -->
-<!-- model_train %>%  -->
-<!-- 	subset(TARGET == 0) %>% -->
-<!-- 	ggplot(aes(RATE_PLAN, fill=factor(TARGET))) + -->
-<!-- 	scale_fill_manual("Target\n",labels = c("0", "1"), values = c("#EFADA9", "#69B5C7")) + -->
-<!--     stat_count(alpha=I(0.7)) + -->
-<!-- 	theme(axis.title.y = element_text(size=12,angle=0,hjust=0.5,vjust=1,lineheight=40)) + -->
-<!-- 	theme(axis.title.x = element_text(size=12)) + -->
-<!-- 	theme(axis.text.x = element_text(size=10,angle=45)) +  -->
-<!-- 	theme(plot.title = element_text(size=13,angle=0)) +  -->
-<!-- 	labs(title = "Density for (6th_Month - Five_Months_Avg) (Figure 6)", x="Difference between forecasted 6th month and average", y="Density") +  -->
-<!-- 	scale_x_discrete(breaks = seq(1,179, by = 1)) -->
-<!-- ``` -->
